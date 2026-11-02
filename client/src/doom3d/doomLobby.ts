@@ -1,11 +1,14 @@
 import { networkManager } from '../network/networkManager.js';
 import { Doom3DRenderer } from './doomRenderer.js';
 import { soundSystem } from '../audio/soundSystem.js';
+import { SettingsModal } from '../ui/settingsModal.js';
 
 export class DoomLobby {
   private lobbyDiv!: HTMLElement;
+  private settingsModal: SettingsModal;
 
   constructor() {
+    this.settingsModal = new SettingsModal();
     this.createHTML();
 
     networkManager.onRoomJoined = (data) => {
@@ -106,19 +109,29 @@ export class DoomLobby {
           <div id="host-wait-msg" style="display: none; font-size: 14px; color: #94a3b8; margin-top: 12px;">Czekam aż host uruchomi mecz...</div>
         </div>
 
-        <!-- Controls Guide -->
-        <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #2d1515; font-size: 11px; color: #94a3b8; line-height: 1.7; text-align: left; font-family: 'Inter', sans-serif;">
+        <!-- Controls Guide & Settings Button -->
+        <div style="margin-top: 20px; display: flex; justify-content: center;">
+          <button id="btn-lobby-settings" style="width: 100%; padding: 11px 18px; background: rgba(56, 189, 248, 0.14); border: 1px solid #38bdf8; color: #38bdf8; border-radius: 8px; font-family: inherit; font-weight: 800; font-size: 13px; cursor: pointer; letter-spacing: 1.5px;">
+            ⚙️ USTAWIENIA (DŹWIĘK 3D, GŁOŚNOŚĆ, MYSZKA, GRAFIKA)
+          </button>
+        </div>
+
+        <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid #2d1515; font-size: 11px; color: #94a3b8; line-height: 1.7; text-align: left; font-family: 'Inter', sans-serif;">
           🎮 <b>Sterowanie Arena 3D:</b><br>
-          &bull; <b>[Kliknięcie w ekran]</b> Zablokowanie myszki (Pointer Lock)<br>
-          &bull; <b>[WASD]</b> Płynny ruch w 3D (przód, tył, strafe lewo/prawo)<br>
-          &bull; <b>[Myszka]</b> Rozglądanie 3D &bull; <b>[LPM]</b> Strzał do przeciwników<br>
-          &bull; <b>[B]</b> Otwórz / Zamknij Sklep Deadlocka &bull; <b>[ESC]</b> Zwolnij myszkę<br>
-          &bull; <b>[Spacja]</b> Dash &bull; <b>[R]</b> Przeładowanie &bull; <b>[E]</b> Podnoszenie broni ze ścian
+          &bull; <b>[WASD]</b> Ruch w 3D &bull; <b>[Myszka + LPM]</b> Celowanie i Strzał<br>
+          &bull; <b>[Spacja]</b> Cyber-Dash &bull; <b>[R]</b> Przeładowanie &bull; <b>[E]</b> Podnoszenie broni<br>
+          &bull; <b>[Strzałki Lewo/Prawo + Spacja]</b> Wybór karty po rundzie<br>
+          &bull; <b>[P] / [ESC]</b> Ustawienia i głośność &bull; <b>[M]</b> Szybkie wyciszenie dźwięku
         </div>
       </div>
     `;
 
     document.body.appendChild(this.lobbyDiv);
+
+    const btnLobbySettings = this.lobbyDiv.querySelector('#btn-lobby-settings') as HTMLButtonElement;
+    btnLobbySettings?.addEventListener('click', () => {
+      this.settingsModal.open();
+    });
 
     const btnCreate = this.lobbyDiv.querySelector('#btn-create-room') as HTMLButtonElement;
     const btnJoin = this.lobbyDiv.querySelector('#btn-join-room') as HTMLButtonElement;
@@ -224,6 +237,7 @@ export class DoomLobby {
   }
 
   public cleanup(): void {
+    this.settingsModal.destroy();
     if (this.lobbyDiv && this.lobbyDiv.parentNode) {
       this.lobbyDiv.remove();
     }

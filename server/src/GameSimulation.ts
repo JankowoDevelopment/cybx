@@ -70,7 +70,7 @@ export class GameSimulation {
   private lastExplosionBroadcastTime: number = 0;
   private nextId: number = 1;
 
-  public onSoundEvent?: (sound: any, weapon?: WeaponType, shooterId?: string) => void;
+  public onSoundEvent?: (sound: any, weapon?: WeaponType, shooterId?: string, x?: number, y?: number) => void;
   public onGameEvent?: (event: string, text?: string, color?: string) => void;
   public onHitEvent?: (x: number, y: number, damage: number, isKill: boolean, isWall: boolean, shooterId: string) => void;
   public onExplosionEvent?: (x: number, y: number, radius: number) => void;
@@ -447,7 +447,7 @@ export class GameSimulation {
       }
     }
     player.dashCooldownRemaining = Math.max(400, Math.round(cd));
-    this.onSoundEvent?.('dash');
+    this.onSoundEvent?.('dash', undefined, player.id, player.x, player.y);
   }
 
   public triggerGrenade(_playerId: string, _targetX: number, _targetY: number): void {
@@ -464,7 +464,7 @@ export class GameSimulation {
 
     player.isReloading = true;
     player.reloadProgress = 0;
-    this.onSoundEvent?.('reload');
+    this.onSoundEvent?.('reload', player.weaponId, player.id, player.x, player.y);
   }
 
   public triggerInteract(playerId: string): void {
@@ -823,7 +823,7 @@ export class GameSimulation {
             b.y = prevY + b.vy * dtSec * 0.4;
 
             this.onHitEvent?.(nextX, nextY, 0, false, true, b.shooterId);
-            this.onSoundEvent?.('hit');
+            this.onSoundEvent?.('hit', b.weaponId, b.shooterId, nextX, nextY);
             hitWall = false; // Bullet bounces and survives!
             break;
           } else {
@@ -902,7 +902,7 @@ export class GameSimulation {
 
           // Dispatch hit event for visual numbers & hitmarkers
           this.onHitEvent?.(hitResult.hitX, hitResult.hitY, Math.round(damage), isKill, false, b.shooterId);
-          this.onSoundEvent?.('hit');
+          this.onSoundEvent?.('hit', b.weaponId, b.shooterId, hitResult.hitX, hitResult.hitY);
 
           // Trigger bullet explosion if explosive rounds card equipped
           if (b.explosiveRadius && b.explosiveRadius > 0) {
@@ -1011,7 +1011,7 @@ export class GameSimulation {
 
   private fireWeaponVolley(player: PlayerState, isBurstFollowUp: boolean): void {
     const weapon = WEAPONS[player.weaponId];
-    this.onSoundEvent?.('shoot', player.weaponId, player.id);
+    this.onSoundEvent?.('shoot', player.weaponId, player.id, player.x, player.y);
 
     // Calculate bullet stats modified by ROUNDS cards (percentage for stats, flat for pellets & bounces)
     let damage = weapon.damage;

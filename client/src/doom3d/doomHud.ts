@@ -2,6 +2,7 @@ import { PlayerState, GameSnapshot } from '@shared/types.js';
 import { WEAPONS } from '@shared/weapons.js';
 import { ROUNDS_CARDS } from '@shared/cards.js';
 import { soundSystem } from '../audio/soundSystem.js';
+import { settingsManager } from '../settings/settingsManager.js';
 
 export class DoomHud {
   private container: HTMLElement;
@@ -9,6 +10,9 @@ export class DoomHud {
   private topScoreboardEl: HTMLElement;
   private myCardsEl: HTMLElement;
   private killfeedEl: HTMLElement;
+  private fpsBadgeEl: HTMLElement;
+  private muteBtnEl: HTMLButtonElement;
+  private settingsBtnEl: HTMLButtonElement;
   private weaponEl: HTMLElement;
   private ammoEl: HTMLElement;
   private hpFillEl: HTMLElement;
@@ -27,6 +31,9 @@ export class DoomHud {
 
   private lastHp: number = 100;
   private lastCountdownSecond: number = -1;
+  private lastCardsKey: string = '__init__';
+  private lastScoreKey: string = '__init__';
+  public onOpenSettings?: () => void;
 
   constructor() {
     this.container = document.createElement('div');
@@ -61,8 +68,21 @@ export class DoomHud {
         </div>
       </div>
 
-      <!-- Top Right: Live Killfeed & Round Events -->
-      <div id="hud-killfeed" style="position: absolute; top: 18px; right: 24px; width: 340px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; pointer-events: none;">
+      <!-- Top Right: Performance & Quick Settings Bar + Live Killfeed -->
+      <div style="position: absolute; top: 18px; right: 24px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px; pointer-events: auto;">
+          <div id="hud-fps-badge" style="background: rgba(9, 13, 22, 0.82); border: 1px solid rgba(34, 197, 94, 0.45); color: #4ade80; font-size: 12px; font-weight: 800; padding: 6px 11px; border-radius: 8px; letter-spacing: 1px;">
+            60 FPS
+          </div>
+          <button id="hud-btn-mute" style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.45); color: #f8fafc; font-family: inherit; font-size: 12px; font-weight: 800; padding: 6px 12px; border-radius: 8px; cursor: pointer;">
+            🔊 [M]
+          </button>
+          <button id="hud-btn-settings" style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.6); color: #38bdf8; font-family: inherit; font-size: 12px; font-weight: 800; padding: 6px 12px; border-radius: 8px; cursor: pointer;">
+            ⚙️ USTAWIENIA [P]
+          </button>
+        </div>
+        <div id="hud-killfeed" style="width: 340px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; pointer-events: none;">
+        </div>
       </div>
 
       <!-- Center: Interaction Prompt -->
@@ -135,6 +155,9 @@ export class DoomHud {
     this.topScoreboardEl = this.container.querySelector('#hud-top-scoreboard')!;
     this.myCardsEl = this.container.querySelector('#hud-my-cards')!;
     this.killfeedEl = this.container.querySelector('#hud-killfeed')!;
+    this.fpsBadgeEl = this.container.querySelector('#hud-fps-badge')!;
+    this.muteBtnEl = this.container.querySelector('#hud-btn-mute')!;
+    this.settingsBtnEl = this.container.querySelector('#hud-btn-settings')!;
     this.weaponEl = this.container.querySelector('#hud-weapon-name')!;
     this.ammoEl = this.container.querySelector('#hud-ammo')!;
     this.hpFillEl = this.container.querySelector('#hud-hp-fill')!;
@@ -150,6 +173,41 @@ export class DoomHud {
     this.cinematicOverlayEl = this.container.querySelector('#hud-cinematic-overlay')!;
     this.cinematicRoundEl = this.container.querySelector('#hud-cinematic-round')!;
     this.cinematicNumberEl = this.container.querySelector('#hud-cinematic-number')!;
+
+    this.muteBtnEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const s = settingsManager.get();
+      settingsManager.update({ muted: !s.muted });
+    });
+
+    this.settingsBtnEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.onOpenSettings?.();
+    });
+
+    this.syncSettingsUI();
+    settingsManager.onChange(() => this.syncSettingsUI());
+  }
+
+  public syncSettingsUI(): void {
+    const s = settingsManager.get();
+    this.fpsBadgeEl.style.display = s.showFps ? 'block' : 'none';
+    if (s.muted || s.masterVolume === 0) {
+      this.muteBtnEl.textContent = '🔇 WYCISZONO [M]';
+      this.muteBtnEl.style.borderColor = '#ef4444';
+      this.muteBtnEl.style.color = '#fca5a5';
+    } else {
+      this.muteBtnEl.textContent = `🔊 ${s.masterVolume}% [M]`;
+      this.muteBtnEl.style.borderColor = 'rgba(56, 189, 248, 0.45)';
+      this.muteBtnEl.style.color = '#f8fafc';
+    }
+  }
+
+  public updateFps(fps: number, culledCount: number): void {
+    const s = settingsManager.get();
+    if (!s.showFps) return;
+    this.fpsBadgeEl.textContent = s.occlusionCulling ? `${fps} FPS • CULL ${culledCount}` : `${fps} FPS`;
+    this.fpsBadgeEl.style.color = fps >= 55 ? '#4ade80' : fps >= 35 ? '#fbbf24' : '#ef4444';
   }
 
   public addEventFeed(text: string, color: string = '#38bdf8'): void {
@@ -213,28 +271,36 @@ export class DoomHud {
   }
 
   public update(player: PlayerState, snapshot: GameSnapshot): void {
-    // 1. Top ROUNDS Scoreboard
-    const scoreItems = snapshot.players.map((p) => {
-      const wins = p.roundWins || 0;
-      const isMe = p.id === player.id;
-      return `<span style="color: ${p.color || '#fff'}; font-weight: 900;">${p.name}${isMe ? ' (TY)' : ''}: <span style="color: #fbbf24; font-size: 21px;">${wins} ⭐</span></span>`;
-    });
-
-    this.topScoreboardEl.innerHTML = `
-      <span style="color: #38bdf8; font-size: 13px; background: rgba(56,189,248,0.16); border: 1px solid rgba(56,189,248,0.4); padding: 4px 10px; border-radius: 6px;">RUNDA ${snapshot.round}</span>
-      <div style="display: flex; gap: 18px; align-items: center;">${scoreItems.join('<span style="color: #334155;">|</span>')}</div>
-    `;
-
-    // 2. Active ROUNDS cards list
-    if (player.cards && player.cards.length > 0) {
-      const cardBadges = player.cards.map((cId) => {
-        const cDef = ROUNDS_CARDS.find((c) => c.id === cId);
-        const name = cDef ? cDef.name : cId;
-        return `<span style="background: rgba(15, 23, 42, 0.82); backdrop-filter: blur(6px); border: 1px solid rgba(56, 189, 248, 0.5); padding: 3px 8px; border-radius: 5px; color: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">${name}</span>`;
+    // 1. Top ROUNDS Scoreboard (Dirty-checked to avoid unnecessary DOM reflows)
+    const scoreKey = `${snapshot.round}|` + snapshot.players.map((p) => `${p.id}:${p.roundWins || 0}`).join(',');
+    if (scoreKey !== this.lastScoreKey) {
+      this.lastScoreKey = scoreKey;
+      const scoreItems = snapshot.players.map((p) => {
+        const wins = p.roundWins || 0;
+        const isMe = p.id === player.id;
+        return `<span style="color: ${p.color || '#fff'}; font-weight: 900;">${p.name}${isMe ? ' (TY)' : ''}: <span style="color: #fbbf24; font-size: 21px;">${wins} ⭐</span></span>`;
       });
-      this.myCardsEl.innerHTML = cardBadges.join('');
-    } else {
-      this.myCardsEl.innerHTML = `<span style="color: #64748b; background: rgba(15,23,42,0.5); padding: 4px 8px; border-radius: 4px;">Brak modułów — wybierz po przegranej rundzie</span>`;
+
+      this.topScoreboardEl.innerHTML = `
+        <span style="color: #38bdf8; font-size: 13px; background: rgba(56,189,248,0.16); border: 1px solid rgba(56,189,248,0.4); padding: 4px 10px; border-radius: 6px;">RUNDA ${snapshot.round}</span>
+        <div style="display: flex; gap: 18px; align-items: center;">${scoreItems.join('<span style="color: #334155;">|</span>')}</div>
+      `;
+    }
+
+    // 2. Active ROUNDS cards list (Dirty-checked)
+    const cardsKey = (player.cards || []).join(',');
+    if (cardsKey !== this.lastCardsKey) {
+      this.lastCardsKey = cardsKey;
+      if (player.cards && player.cards.length > 0) {
+        const cardBadges = player.cards.map((cId) => {
+          const cDef = ROUNDS_CARDS.find((c) => c.id === cId);
+          const name = cDef ? cDef.name : cId;
+          return `<span style="background: rgba(15, 23, 42, 0.82); backdrop-filter: blur(6px); border: 1px solid rgba(56, 189, 248, 0.5); padding: 3px 8px; border-radius: 5px; color: #f8fafc; box-shadow: 0 2px 6px rgba(0,0,0,0.3);">${name}</span>`;
+        });
+        this.myCardsEl.innerHTML = cardBadges.join('');
+      } else {
+        this.myCardsEl.innerHTML = `<span style="color: #64748b; background: rgba(15,23,42,0.5); padding: 4px 8px; border-radius: 4px;">Brak modułów — wybierz po przegranej rundzie</span>`;
+      }
     }
 
     // 3. Weapon & Ammo

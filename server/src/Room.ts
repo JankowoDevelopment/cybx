@@ -25,12 +25,14 @@ export class Room {
     this.simulation = new GameSimulation();
 
     // Wire simulation events
-    this.simulation.onSoundEvent = (sound, weapon, shooterId) => {
+    this.simulation.onSoundEvent = (sound, weapon, shooterId, x, y) => {
       this.broadcast({
         type: 'sound_event',
         sound,
         weapon,
-        shooterId
+        shooterId,
+        x,
+        y
       });
     };
 

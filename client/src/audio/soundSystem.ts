@@ -1,10 +1,30 @@
 import { WeaponType } from '@shared/types.js';
+import { settingsManager } from '../settings/settingsManager.js';
+
+export interface SpatialSoundOptions {
+  sourceX?: number;
+  sourceY?: number;
+  listenerX?: number;
+  listenerY?: number;
+  listenerForwardX?: number;
+  listenerForwardZ?: number;
+  listenerRightX?: number;
+  listenerRightZ?: number;
+  occluded?: boolean;
+}
 
 class SoundSystem {
   private ctx: AudioContext | null = null;
   private compressor: DynamicsCompressorNode | null = null;
   private masterGain: GainNode | null = null;
-  private isMuted: boolean = false;
+  private sharedNoiseBuffer: AudioBuffer | null = null;
+  private lastSoundTimes: Map<string, number> = new Map();
+
+  constructor() {
+    settingsManager.onChange(() => {
+      this.syncVolumeFromSettings();
+    });
+  }
 
   private initCtx(): AudioContext {
     if (!this.ctx) {
@@ -20,10 +40,19 @@ class SoundSystem {
       this.compressor.release.setValueAtTime(0.12, this.ctx.currentTime);
 
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.setValueAtTime(0.75, this.ctx.currentTime);
-
       this.compressor.connect(this.masterGain);
       this.masterGain.connect(this.ctx.destination);
+
+      // Pre-allocate shared white noise buffer ONCE (eliminates per-shot CPU/GC allocations!)
+      const sampleRate = this.ctx.sampleRate;
+      const length = Math.floor(sampleRate * 1.0);
+      this.sharedNoiseBuffer = this.ctx.createBuffer(1, length, sampleRate);
+      const data = this.sharedNoiseBuffer.getChannelData(0);
+      for (let i = 0; i < length; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+
+      this.syncVolumeFromSettings();
     }
     if (this.ctx.state === 'suspended') {
       this.ctx.resume();
@@ -31,69 +60,164 @@ class SoundSystem {
     return this.ctx;
   }
 
-  private getDestination(): AudioNode {
-    this.initCtx();
-    return this.compressor!;
+  public syncVolumeFromSettings(): void {
+    if (!this.ctx || !this.masterGain) return;
+    const s = settingsManager.get();
+    const effectiveGain = s.muted ? 0 : (s.masterVolume / 100) * (s.sfxVolume / 100) * 0.95;
+    this.masterGain.gain.setTargetAtTime(effectiveGain, this.ctx.currentTime, 0.015);
   }
 
-  public playSound(sound: string, weapon?: WeaponType): void {
-    if (this.isMuted) return;
+  /**
+   * Builds a spatial routing chain (StereoPanner + Distance Gain + Wall/Rear Lowpass Filter)
+   * when 3D spatial coordinates are provided and enabled in settings.
+   */
+  private createSpatialDestination(ctx: AudioContext, spatial?: SpatialSoundOptions): AudioNode | null {
+    const baseDest = this.compressor!;
+    const s = settingsManager.get();
+
+    if (
+      !spatial ||
+      !s.spatialAudio ||
+      spatial.sourceX === undefined ||
+      spatial.sourceY === undefined ||
+      spatial.listenerX === undefined ||
+      spatial.listenerY === undefined
+    ) {
+      return baseDest;
+    }
+
+    const dx = spatial.sourceX - spatial.listenerX;
+    const dy = spatial.sourceY - spatial.listenerY;
+    const dist = Math.hypot(dx, dy);
+
+    // Very close sounds (e.g. own gunshots) play centered at full volume
+    if (dist < 28) {
+      return baseDest;
+    }
+
+    const maxHearDist = 4400;
+    if (dist > maxHearDist) {
+      return null; // Too far away to hear
+    }
+
+    // Distance attenuation curve
+    const normDist = Math.min(1, dist / maxHearDist);
+    let distGainVal = Math.max(0.04, Math.pow(1 - normDist, 1.55));
+
+    // Stereo Left/Right Panning (-1 left ear to +1 right ear)
+    const nx = dx / dist;
+    const ny = dy / dist;
+    const rightX = spatial.listenerRightX ?? 1;
+    const rightZ = spatial.listenerRightZ ?? 0;
+    const fwdX = spatial.listenerForwardX ?? 0;
+    const fwdZ = spatial.listenerForwardZ ?? -1;
+
+    const panValue = Math.max(-1, Math.min(1, (nx * rightX + ny * rightZ) * 0.92));
+    const forwardDot = nx * fwdX + ny * fwdZ; // < 0 means behind the player's head
+
+    const distGainNode = ctx.createGain();
+    let tailNode: AudioNode = distGainNode;
+
+    // Apply muffled lowpass filter if sound is behind a wall or behind the player's head
+    const isBehindPlayer = forwardDot < -0.2;
+    if (spatial.occluded || isBehindPlayer || dist > 1400) {
+      const lpf = ctx.createBiquadFilter();
+      lpf.type = 'lowpass';
+      let cutoff = 6500 * (1 - normDist * 0.65);
+      if (spatial.occluded) {
+        cutoff = Math.min(cutoff, 1050);
+        distGainVal *= 0.68;
+      } else if (isBehindPlayer) {
+        cutoff = Math.min(cutoff, 2100);
+        distGainVal *= 0.85;
+      }
+      lpf.frequency.setValueAtTime(Math.max(420, cutoff), ctx.currentTime);
+      distGainNode.connect(lpf);
+      tailNode = lpf;
+    }
+
+    distGainNode.gain.setValueAtTime(distGainVal, ctx.currentTime);
+
+    if (typeof ctx.createStereoPanner === 'function') {
+      const panner = ctx.createStereoPanner();
+      panner.pan.setValueAtTime(panValue, ctx.currentTime);
+      tailNode.connect(panner);
+      panner.connect(baseDest);
+    } else {
+      tailNode.connect(baseDest);
+    }
+
+    return distGainNode;
+  }
+
+  public playSound(sound: string, weapon?: WeaponType, spatial?: SpatialSoundOptions): void {
+    const s = settingsManager.get();
+    if (s.muted || s.masterVolume <= 0 || s.sfxVolume <= 0) return;
+
+    // Micro-throttle identical sound bursts within 18ms to prevent WebAudio node overload during shotgun/barrage hits
+    const nowMs = performance.now();
+    const throttleKey = weapon ? `${sound}_${weapon}` : sound;
+    const minGap = sound === 'hit' ? 25 : sound === 'explosion' ? 40 : 14;
+    const lastTime = this.lastSoundTimes.get(throttleKey) || 0;
+    if (nowMs - lastTime < minGap) return;
+    this.lastSoundTimes.set(throttleKey, nowMs);
+
     try {
       const ctx = this.initCtx();
+      const dest = this.createSpatialDestination(ctx, spatial);
+      if (!dest) return;
 
       switch (sound) {
         case 'shoot':
-          this.playGunshot(ctx, weapon || 'm1911');
+          this.playGunshot(ctx, dest, weapon || 'm1911');
           break;
         case 'hit':
-          this.playHitmarker(ctx);
+          this.playHitmarker(ctx, dest);
           break;
         case 'reload':
-          this.playReload(ctx);
+          this.playReload(ctx, dest);
           break;
         case 'zombie_groan':
-          this.playZombieGroan(ctx);
+          this.playZombieGroan(ctx, dest);
           break;
         case 'zombie_death':
-          this.playZombieDeath(ctx);
+          this.playZombieDeath(ctx, dest);
           break;
         case 'round_start':
-          this.playRoundStart(ctx);
+          this.playRoundStart(ctx, dest);
           break;
         case 'round_end':
-          this.playRoundEnd(ctx);
+          this.playRoundEnd(ctx, dest);
           break;
         case 'buy':
-          this.playBuy(ctx);
+          this.playBuy(ctx, dest);
           break;
         case 'mystery_box':
-          this.playMysteryBox(ctx);
+          this.playMysteryBox(ctx, dest);
           break;
         case 'nuke':
         case 'explosion':
-          this.playExplosion(ctx);
+          this.playExplosion(ctx, dest);
           break;
         case 'dash':
-          this.playDash(ctx);
+          this.playDash(ctx, dest);
           break;
         case 'downed':
-          this.playDowned(ctx);
+          this.playDowned(ctx, dest);
           break;
         case 'revived':
-          this.playRevived(ctx);
+          this.playRevived(ctx, dest);
           break;
       }
-    } catch (e) {
+    } catch (_e) {
       // Audio autoplay policy catch
     }
   }
 
-  private playGunshot(ctx: AudioContext, weapon: WeaponType): void {
+  private playGunshot(ctx: AudioContext, dest: AudioNode, weapon: WeaponType): void {
     const t = ctx.currentTime;
-    const dest = this.getDestination();
 
     if (weapon === 'raygun' || weapon === 'gauss' || weapon === 'crossbow') {
-      // Sci-fi synth chirp / magnetic coil snap
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = weapon === 'crossbow' ? 'triangle' : 'sawtooth';
@@ -112,7 +236,6 @@ class SoundSystem {
       return;
     }
 
-    // Shotgun: heavy punch, SMG: quiet rhythmic click, M16: sharp burst, M1911: crisp snap
     let noiseGainLevel = 0.22;
     let filterFreq = 1200;
     let filterType: BiquadFilterType = 'bandpass';
@@ -147,33 +270,28 @@ class SoundSystem {
       subGainLevel = 0.24;
     }
 
-    // Noise buffer
-    const bufferSize = Math.floor(ctx.sampleRate * duration);
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = Math.random() * 2 - 1;
+    if (this.sharedNoiseBuffer) {
+      const noise = ctx.createBufferSource();
+      noise.buffer = this.sharedNoiseBuffer;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = filterType;
+      filter.frequency.value = filterFreq;
+
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(noiseGainLevel, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(dest);
+
+      // Start at a random offset in the shared 1s noise buffer
+      const randomOffset = Math.random() * Math.max(0.01, 0.9 - duration);
+      noise.start(t, randomOffset, duration);
+      noise.stop(t + duration);
     }
 
-    const noise = ctx.createBufferSource();
-    noise.buffer = buffer;
-
-    const filter = ctx.createBiquadFilter();
-    filter.type = filterType;
-    filter.frequency.value = filterFreq;
-
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(noiseGainLevel, t);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
-
-    noise.connect(filter);
-    filter.connect(gain);
-    gain.connect(dest);
-
-    noise.start(t);
-    noise.stop(t + duration);
-
-    // Punch sub-bass transient
     const osc = ctx.createOscillator();
     const oscGain = ctx.createGain();
     osc.frequency.setValueAtTime(subFreq, t);
@@ -188,18 +306,15 @@ class SoundSystem {
     osc.stop(t + 0.07);
   }
 
-  // Hitmarker: Crisp, high-contrast feedback! Very noticeable metallic / ceramic click
-  private playHitmarker(ctx: AudioContext): void {
+  private playHitmarker(ctx: AudioContext, dest: AudioNode): void {
     const t = ctx.currentTime;
-    const dest = this.getDestination();
-
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(1800, t);
     osc.frequency.exponentialRampToValueAtTime(2600, t + 0.045);
 
-    gain.gain.setValueAtTime(0.35, t); // Clear and punchy
+    gain.gain.setValueAtTime(0.35, t);
     gain.gain.exponentialRampToValueAtTime(0.005, t + 0.045);
 
     osc.connect(gain);
@@ -208,16 +323,14 @@ class SoundSystem {
     osc.stop(t + 0.045);
   }
 
-  private playReload(ctx: AudioContext): void {
+  private playReload(ctx: AudioContext, dest: AudioNode): void {
     const t = ctx.currentTime;
-    const dest = this.getDestination();
-
     [0, 0.22, 0.48].forEach((offset, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'square';
       osc.frequency.setValueAtTime(idx === 1 ? 350 : 750, t + offset);
-      gain.gain.setValueAtTime(0.1, t + offset); // Subtle, tactile
+      gain.gain.setValueAtTime(0.1, t + offset);
       gain.gain.exponentialRampToValueAtTime(0.001, t + offset + 0.04);
 
       osc.connect(gain);
@@ -227,11 +340,8 @@ class SoundSystem {
     });
   }
 
-  // Ambient, low volume so it doesn't dominate the mix
-  private playZombieGroan(ctx: AudioContext): void {
+  private playZombieGroan(ctx: AudioContext, dest: AudioNode): void {
     const t = ctx.currentTime;
-    const dest = this.getDestination();
-
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'sawtooth';
@@ -239,7 +349,7 @@ class SoundSystem {
     osc.frequency.linearRampToValueAtTime(105, t + 0.25);
     osc.frequency.linearRampToValueAtTime(65, t + 0.55);
 
-    gain.gain.setValueAtTime(0.07, t); // Quiet background atmosphere
+    gain.gain.setValueAtTime(0.07, t);
     gain.gain.linearRampToValueAtTime(0.09, t + 0.25);
     gain.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
 
@@ -249,10 +359,8 @@ class SoundSystem {
     osc.stop(t + 0.55);
   }
 
-  private playZombieDeath(ctx: AudioContext): void {
+  private playZombieDeath(ctx: AudioContext, dest: AudioNode): void {
     const t = ctx.currentTime;
-    const dest = this.getDestination();
-
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'sine';
@@ -268,9 +376,8 @@ class SoundSystem {
     osc.stop(t + 0.16);
   }
 
-  private playRoundStart(ctx: AudioContext): void {
+  private playRoundStart(ctx: AudioContext, dest: AudioNode): void {
     const t = ctx.currentTime;
-    const dest = this.getDestination();
     const notes = [65.4, 73.4, 82.4, 65.4];
     notes.forEach((freq, idx) => {
       const osc = ctx.createOscillator();
@@ -288,9 +395,8 @@ class SoundSystem {
     });
   }
 
-  private playRoundEnd(ctx: AudioContext): void {
+  private playRoundEnd(ctx: AudioContext, dest: AudioNode): void {
     const t = ctx.currentTime;
-    const dest = this.getDestination();
     [523.25, 659.25, 783.99, 1046.5].forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -307,9 +413,8 @@ class SoundSystem {
     });
   }
 
-  private playBuy(ctx: AudioContext): void {
+  private playBuy(ctx: AudioContext, dest: AudioNode): void {
     const t = ctx.currentTime;
-    const dest = this.getDestination();
     [523.25, 1046.5].forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -326,9 +431,8 @@ class SoundSystem {
     });
   }
 
-  private playMysteryBox(ctx: AudioContext): void {
+  private playMysteryBox(ctx: AudioContext, dest: AudioNode): void {
     const t = ctx.currentTime;
-    const dest = this.getDestination();
     const count = 10;
     for (let i = 0; i < count; i++) {
       const osc = ctx.createOscillator();
@@ -347,29 +451,45 @@ class SoundSystem {
     }
   }
 
-  private playExplosion(ctx: AudioContext): void {
+  private playExplosion(ctx: AudioContext, dest: AudioNode): void {
     const t = ctx.currentTime;
-    const dest = this.getDestination();
+
+    if (this.sharedNoiseBuffer) {
+      const noise = ctx.createBufferSource();
+      noise.buffer = this.sharedNoiseBuffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(320, t);
+      filter.frequency.exponentialRampToValueAtTime(60, t + 0.55);
+
+      const nGain = ctx.createGain();
+      nGain.gain.setValueAtTime(0.42, t);
+      nGain.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+
+      noise.connect(filter);
+      filter.connect(nGain);
+      nGain.connect(dest);
+      noise.start(t, Math.random() * 0.3, 0.55);
+      noise.stop(t + 0.55);
+    }
 
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'sawtooth';
     osc.frequency.setValueAtTime(90, t);
-    osc.frequency.exponentialRampToValueAtTime(18, t + 0.75);
+    osc.frequency.exponentialRampToValueAtTime(18, t + 0.65);
 
-    gain.gain.setValueAtTime(0.48, t);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.75);
+    gain.gain.setValueAtTime(0.45, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
 
     osc.connect(gain);
     gain.connect(dest);
     osc.start(t);
-    osc.stop(t + 0.75);
+    osc.stop(t + 0.65);
   }
 
-  private playDash(ctx: AudioContext): void {
+  private playDash(ctx: AudioContext, dest: AudioNode): void {
     const t = ctx.currentTime;
-    const dest = this.getDestination();
-
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'sine';
@@ -385,10 +505,8 @@ class SoundSystem {
     osc.stop(t + 0.16);
   }
 
-  private playDowned(ctx: AudioContext): void {
+  private playDowned(ctx: AudioContext, dest: AudioNode): void {
     const t = ctx.currentTime;
-    const dest = this.getDestination();
-
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'sawtooth';
@@ -404,10 +522,8 @@ class SoundSystem {
     osc.stop(t + 0.5);
   }
 
-  private playRevived(ctx: AudioContext): void {
+  private playRevived(ctx: AudioContext, dest: AudioNode): void {
     const t = ctx.currentTime;
-    const dest = this.getDestination();
-
     [261.63, 329.63, 392.0, 523.25].forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();

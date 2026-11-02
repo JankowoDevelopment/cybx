@@ -4,7 +4,7 @@ import { GameSnapshot, PlayerState, WeaponType, ZombieState } from '@shared/type
 import { SERVER_CONFIG } from '@shared/constants.js';
 import { DEADLOCK_ITEMS } from '@shared/items.js';
 import { ROUNDS_CARDS } from '@shared/cards.js';
-import { resolveMovement } from '@shared/collision.js';
+import { resolveMovement, hasLineOfSight } from '@shared/collision.js';
 import { WEAPONS } from '@shared/weapons.js';
 import { createDefaultMap, MapData, WallRect } from '@shared/map.js';
 import { createDoomTextures, DoomTextureSet } from './doomTextures.js';
@@ -12,7 +12,9 @@ import { DoomWeaponRenderer, create3DWeaponMesh } from './doomWeapon.js';
 import { DoomHud } from './doomHud.js';
 import { ShopModal } from '../ui/shopModal.js';
 import { CardDraftModal } from '../ui/cardDraftModal.js';
-import { soundSystem } from '../audio/soundSystem.js';
+import { SettingsModal } from '../ui/settingsModal.js';
+import { soundSystem, SpatialSoundOptions } from '../audio/soundSystem.js';
+import { settingsManager } from '../settings/settingsManager.js';
 
 interface OpponentModel3D {
   group: THREE.Group;
@@ -38,12 +40,18 @@ export class Doom3DRenderer {
   private hud: DoomHud;
   private shopModal: ShopModal;
   private cardDraftModal: CardDraftModal;
+  private settingsModal: SettingsModal;
   private currentDraftPickerId: string | null = null;
+  private unsubscribeSettings?: () => void;
 
   // Pointer Lock & Camera Angles
   private yaw: number = 0;
   private pitch: number = 0;
   private isPointerLocked: boolean = false;
+  private camForwardX: number = 0;
+  private camForwardZ: number = -1;
+  private camRightX: number = 1;
+  private camRightZ: number = 0;
 
   // Client-Side Prediction & Motion Smoothing
   private predictedX: number = 500;
@@ -52,28 +60,54 @@ export class Doom3DRenderer {
   private headBobTimer: number = 0;
   private cameraShake: number = 0;
   private lastInputSendTime: number = 0;
+  private lastSnapshotTime: number = 0;
+
+  // FPS & Culling Telemetry
+  private fpsFrameCount: number = 0;
+  private fpsLastTime: number = 0;
+  private currentFps: number = 60;
+  private culledObjectsCount: number = 0;
 
   // Key States
   private pressedKeys: Set<string> = new Set();
   private isMouseDown: boolean = false;
 
   // 3D Objects Cache
+  private sunLight!: THREE.DirectionalLight;
   private wallMeshes: THREE.Object3D[] = [];
   private doorMeshes: Map<string, THREE.Mesh> = new Map();
   private wallBuyGroups: THREE.Group[] = [];
   private centerReactorMesh: THREE.Mesh | null = null;
   private zombieSprites: Map<string, THREE.Sprite> = new Map();
   private playerModels: Map<string, OpponentModel3D> = new Map();
-  private playerHpBars: Map<string, { sprite: THREE.Sprite; canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture }> = new Map();
+  private playerHpBars: Map<
+    string,
+    {
+      sprite: THREE.Sprite;
+      canvas: HTMLCanvasElement;
+      ctx: CanvasRenderingContext2D;
+      tex: THREE.CanvasTexture;
+      lastKey: string;
+    }
+  > = new Map();
   private powerupSprites: Map<string, THREE.Object3D> = new Map();
   private barrelMeshes: Map<string, THREE.Group> = new Map();
 
   // Pre-allocated Shared Geometries & Light Pool (Eliminates shader recompilation & GC freezes!)
   private explosionFlashLight!: THREE.PointLight;
-  private sharedExpSphereGeo = new THREE.SphereGeometry(1, 16, 16);
-  private sharedExpRingGeo = new THREE.TorusGeometry(1, 0.08, 10, 28);
+  private sharedExpSphereGeo = new THREE.SphereGeometry(1, 14, 14);
+  private sharedExpRingGeo = new THREE.TorusGeometry(1, 0.08, 8, 24);
   private sharedDebrisGeo = new THREE.BoxGeometry(3.5, 3.5, 3.5);
   private sharedDebrisMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+  private sharedTracerGeo = new THREE.BoxGeometry(1.6, 1.6, 1);
+
+  // Zero-Allocation Bullet Object Pool
+  private bulletPool: {
+    sprite: THREE.Sprite;
+    spriteMat: THREE.SpriteMaterial;
+    tracer: THREE.Mesh;
+    tracerMat: THREE.MeshBasicMaterial;
+  }[] = [];
 
   // VFX: Explosions, Tracers & Damage Texts
   private activeExplosions: {
@@ -126,6 +160,17 @@ export class Doom3DRenderer {
     this.hud = new DoomHud();
     this.shopModal = new ShopModal();
     this.cardDraftModal = new CardDraftModal();
+    this.settingsModal = new SettingsModal();
+
+    this.hud.onOpenSettings = () => {
+      this.settingsModal.open();
+    };
+    this.settingsModal.onOpen = () => {
+      this.hud.setShopOpen(true);
+    };
+    this.settingsModal.onClose = () => {
+      this.hud.setShopOpen(false);
+    };
 
     // Map initialization
     const initData = networkManager.lastGameInitPacket;
@@ -137,6 +182,13 @@ export class Doom3DRenderer {
 
     // Build Modern 3D Cyber-Arena World
     this.buildWorld();
+    this.initBulletPool();
+
+    // Apply initial graphics/camera settings & subscribe to live updates
+    this.applyGraphicsSettings();
+    this.unsubscribeSettings = settingsManager.onChange(() => {
+      this.applyGraphicsSettings();
+    });
 
     // Setup Controls & Events
     this.setupEvents();
@@ -146,7 +198,60 @@ export class Doom3DRenderer {
 
     // Start Loop
     this.lastFrameTime = performance.now();
+    this.fpsLastTime = this.lastFrameTime;
     requestAnimationFrame((t) => this.renderLoop(t));
+  }
+
+  private initBulletPool(): void {
+    const tex = this.getBulletTexture();
+    const poolSize = 64;
+    for (let i = 0; i < poolSize; i++) {
+      const spriteMat = new THREE.SpriteMaterial({
+        map: tex,
+        color: 0x38bdf8,
+        blending: THREE.AdditiveBlending,
+        transparent: true,
+        depthWrite: false
+      });
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.visible = false;
+      this.scene.add(sprite);
+
+      const tracerMat = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        transparent: true,
+        opacity: 0.82,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      const tracer = new THREE.Mesh(this.sharedTracerGeo, tracerMat);
+      tracer.visible = false;
+      this.scene.add(tracer);
+
+      this.bulletPool.push({ sprite, spriteMat, tracer, tracerMat });
+    }
+  }
+
+  private applyGraphicsSettings(): void {
+    const s = settingsManager.get();
+
+    if (this.camera.fov !== s.fov) {
+      this.camera.fov = s.fov;
+      this.camera.updateProjectionMatrix();
+    }
+
+    let maxDpr = 1.75;
+    if (s.graphicsQuality === 'low') maxDpr = 0.85;
+    else if (s.graphicsQuality === 'medium') maxDpr = 1.25;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxDpr));
+
+    if (this.renderer.shadowMap.enabled !== s.shadowsEnabled) {
+      this.renderer.shadowMap.enabled = s.shadowsEnabled;
+      if (this.sunLight) {
+        this.sunLight.castShadow = s.shadowsEnabled;
+      }
+      this.renderer.shadowMap.needsUpdate = true;
+    }
   }
 
   private buildWorld(): void {
@@ -160,11 +265,12 @@ export class Doom3DRenderer {
     this.scene.add(hemiLight);
 
     const sunLight = new THREE.DirectionalLight(0xe0f2fe, 1.65);
+    this.sunLight = sunLight;
     sunLight.position.set(mapW * 0.3, 1800, mapH * 0.25);
     sunLight.target.position.set(mapW / 2, 0, mapH / 2);
     sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 2048;
-    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.mapSize.width = 1536;
+    sunLight.shadow.mapSize.height = 1536;
     sunLight.shadow.camera.near = 200;
     sunLight.shadow.camera.far = 4500;
     const d = 2600;
@@ -476,7 +582,12 @@ export class Doom3DRenderer {
     };
 
     const lockHandler = () => {
-      if (!this.shopModal.isOpen && !this.cardDraftModal.isOpen && !this.isPointerLocked) {
+      if (
+        !this.shopModal.isOpen &&
+        !this.cardDraftModal.isOpen &&
+        !this.settingsModal.isOpen &&
+        !this.isPointerLocked
+      ) {
         document.body.requestPointerLock();
       }
     };
@@ -490,9 +601,14 @@ export class Doom3DRenderer {
     });
 
     document.addEventListener('mousemove', (e) => {
-      if (this.isPointerLocked && this.latestSnapshot?.roundState !== 'countdown') {
-        this.yaw -= e.movementX * 0.0022;
-        this.pitch -= e.movementY * 0.0022;
+      if (
+        this.isPointerLocked &&
+        !this.settingsModal.isOpen &&
+        this.latestSnapshot?.roundState !== 'countdown'
+      ) {
+        const sens = 0.0022 * settingsManager.get().mouseSensitivity;
+        this.yaw -= e.movementX * sens;
+        this.pitch -= e.movementY * sens;
         this.pitch = Math.max(-Math.PI * 0.44, Math.min(Math.PI * 0.44, this.pitch));
       }
     });
@@ -503,6 +619,7 @@ export class Doom3DRenderer {
         this.isPointerLocked &&
         !this.shopModal.isOpen &&
         !this.cardDraftModal.isOpen &&
+        !this.settingsModal.isOpen &&
         this.latestSnapshot?.roundState === 'active'
       ) {
         this.isMouseDown = true;
@@ -515,14 +632,34 @@ export class Doom3DRenderer {
     });
 
     window.addEventListener('keydown', (e) => {
-      if (this.cardDraftModal.isOpen) return;
-      this.pressedKeys.add(e.code);
+      if (e.code === 'KeyM') {
+        const s = settingsManager.get();
+        settingsManager.update({ muted: !s.muted });
+        return;
+      }
+
+      if (e.code === 'KeyP') {
+        this.settingsModal.toggle();
+        return;
+      }
 
       if (e.code === 'Escape') {
+        if (this.settingsModal.isOpen) {
+          this.settingsModal.close();
+          return;
+        }
         if (this.shopModal.isOpen) {
           this.shopModal.close();
+          return;
         }
-      } else if (this.latestSnapshot?.roundState === 'active') {
+        this.settingsModal.open();
+        return;
+      }
+
+      if (this.cardDraftModal.isOpen || this.settingsModal.isOpen) return;
+      this.pressedKeys.add(e.code);
+
+      if (this.latestSnapshot?.roundState === 'active') {
         if (e.code === 'KeyR') {
           networkManager.send({ type: 'reload' });
         } else if (e.code === 'KeyE') {
@@ -544,9 +681,67 @@ export class Doom3DRenderer {
     });
   }
 
+  /**
+   * Builds 3D Spatial Audio parameters (Stereo Left/Right pan, Distance attenuation, Wall occlusion muffling).
+   */
+  private getSpatialSoundOptions(sourceX?: number, sourceY?: number): SpatialSoundOptions | undefined {
+    if (sourceX === undefined || sourceY === undefined) return undefined;
+    const walls = this.getEffectiveWalls();
+    const occluded = !hasLineOfSight(this.predictedX, this.predictedZ, sourceX, sourceY, walls);
+    return {
+      sourceX,
+      sourceY,
+      listenerX: this.predictedX,
+      listenerY: this.predictedZ,
+      listenerForwardX: this.camForwardX,
+      listenerForwardZ: this.camForwardZ,
+      listenerRightX: this.camRightX,
+      listenerRightZ: this.camRightZ,
+      occluded
+    };
+  }
+
+  /**
+   * Fast Frustum (Behind-Camera) + 2D Wall-Occlusion Culling for non-player objects
+   * (bullets, barrels, wall-buy holograms, power-ups, floating damage numbers, explosions).
+   * Note: Opponent 3D Models & X-Ray Wallhack NEVER call this and are always visible!
+   */
+  private isPointVisibleToPlayer(x: number, z: number, walls: WallRect[], marginRadius: number = 0): boolean {
+    if (!settingsManager.get().occlusionCulling) return true;
+    if (this.latestSnapshot?.roundState === 'countdown') return true;
+
+    const dx = x - this.camera.position.x;
+    const dz = z - this.camera.position.z;
+    const distSq = dx * dx + dz * dz;
+
+    // Objects right next to the player are always visible
+    if (distSq <= (85 + marginRadius) * (85 + marginRadius)) {
+      return true;
+    }
+
+    const dist = Math.sqrt(distSq);
+    const forwardDot = (dx * this.camForwardX + dz * this.camForwardZ) / dist;
+
+    // 1. Behind-camera / View-cone check (cull anything behind the player's field of view)
+    const minCos = marginRadius > 60 ? -0.15 : 0.12;
+    if (forwardDot < minCos) {
+      this.culledObjectsCount++;
+      return false;
+    }
+
+    // 2. Wall Occlusion Raycast check (cull if blocked by an arena wall/pillar)
+    if (!hasLineOfSight(this.camera.position.x, this.camera.position.z, x, z, walls)) {
+      this.culledObjectsCount++;
+      return false;
+    }
+
+    return true;
+  }
+
   private setupNetwork(): void {
     networkManager.onSnapshot = (snapshot) => {
       this.latestSnapshot = snapshot;
+      this.lastSnapshotTime = performance.now();
 
       for (const door of snapshot.doors) {
         const mesh = this.doorMeshes.get(door.id);
@@ -587,11 +782,24 @@ export class Doom3DRenderer {
       }
     };
 
-    networkManager.onSoundEvent = (sound, weapon, shooterId) => {
-      soundSystem.playSound(sound, weapon);
-      if (sound === 'shoot' && (!shooterId || shooterId === networkManager.playerId)) {
+    networkManager.onSoundEvent = (sound, weapon, shooterId, x, y) => {
+      let srcX = x;
+      let srcY = y;
+      if ((srcX === undefined || srcY === undefined) && shooterId && this.latestSnapshot) {
+        const shooter = this.latestSnapshot.players.find((p) => p.id === shooterId);
+        if (shooter) {
+          srcX = shooter.x;
+          srcY = shooter.y;
+        }
+      }
+
+      const isSelf = !shooterId || shooterId === networkManager.playerId;
+      const spatial = isSelf && sound !== 'hit' ? undefined : this.getSpatialSoundOptions(srcX, srcY);
+      soundSystem.playSound(sound, weapon, spatial);
+
+      if (sound === 'shoot' && isSelf) {
         this.weaponRenderer.triggerShoot();
-      } else if (sound === 'reload' && (!shooterId || shooterId === networkManager.playerId)) {
+      } else if (sound === 'reload' && isSelf) {
         this.weaponRenderer.triggerReload();
       }
     };
@@ -618,7 +826,20 @@ export class Doom3DRenderer {
   }
 
   private spawn3DExplosion(x: number, y: number, radius: number): void {
-    soundSystem.playSound('explosion');
+    // Always play 3D directional explosion audio (muffled if behind wall, panned L/R)
+    soundSystem.playSound('explosion', undefined, this.getSpatialSoundOptions(x, y));
+
+    const dist = Math.hypot(this.predictedX - x, this.predictedZ - y);
+    if (dist < radius * 2.0) {
+      const intensity = Math.max(0.1, 1 - dist / (radius * 2.0));
+      this.cameraShake = Math.min(0.45, this.cameraShake + intensity * 0.35);
+    }
+
+    // If the explosion is completely behind the player or occluded behind a wall, skip 3D mesh allocation!
+    const walls = this.getEffectiveWalls();
+    if (!this.isPointVisibleToPlayer(x, y, walls, radius)) {
+      return;
+    }
 
     // Cap simultaneous explosions to 6 to guarantee 60+ FPS and clear visibility!
     if (this.activeExplosions.length >= 6) {
@@ -654,10 +875,11 @@ export class Doom3DRenderer {
     group.add(ring);
 
     // 3. Lightweight Flying Sparks (Shared Geometry & Material)
+    const debrisCount = settingsManager.get().graphicsQuality === 'low' ? 4 : 8;
     const debris: { mesh: THREE.Mesh; vx: number; vy: number; vz: number }[] = [];
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < debrisCount; i++) {
       const m = new THREE.Mesh(this.sharedDebrisGeo, this.sharedDebrisMat);
-      const ang = (i / 8) * Math.PI * 2 + Math.random() * 0.4;
+      const ang = (i / debrisCount) * Math.PI * 2 + Math.random() * 0.4;
       const spd = 140 + Math.random() * 200;
       debris.push({
         mesh: m,
@@ -685,16 +907,13 @@ export class Doom3DRenderer {
       duration: 420,
       maxRadius: clampedVisualRadius
     });
-
-    const dist = Math.hypot(this.predictedX - x, this.predictedZ - y);
-    if (dist < radius * 2.0) {
-      const intensity = Math.max(0.1, 1 - dist / (radius * 2.0));
-      this.cameraShake = Math.min(0.45, this.cameraShake + intensity * 0.35);
-    }
   }
 
   private spawn3DDamageText(x: number, y: number, damage: number, isKill: boolean): void {
-    if (damage <= 0 || this.damageTexts.length >= 12) return;
+    if (damage <= 0 || this.damageTexts.length >= 10) return;
+
+    const walls = this.getEffectiveWalls();
+    if (!this.isPointVisibleToPlayer(x, y, walls, 25)) return;
 
     const canvas = document.createElement('canvas');
     canvas.width = 128;
@@ -744,23 +963,12 @@ export class Doom3DRenderer {
     const dtSec = Math.min(0.1, dtMs / 1000);
     this.lastFrameTime = timestamp;
 
+    this.culledObjectsCount = 0;
     const snapshot = this.latestSnapshot;
     const localPlayer = snapshot?.players.find((p) => p.id === networkManager.playerId);
+    const effectiveWalls = this.getEffectiveWalls();
 
-    // Rotate 3D weapon holograms & Center Reactor
-    for (const ped of this.wallBuyGroups) {
-      const wep = ped.getObjectByName('rotating_weapon');
-      if (wep) {
-        wep.rotation.y += dtSec * 1.8;
-        wep.position.y = 27 + Math.sin(timestamp * 0.004) * 3;
-      }
-    }
-    if (this.centerReactorMesh) {
-      this.centerReactorMesh.rotation.y += dtSec * 0.9;
-      this.centerReactorMesh.rotation.x += dtSec * 0.5;
-    }
-
-    // Decay reusable explosion flash light
+    //Decay reusable explosion flash light
     if (this.explosionFlashLight.intensity > 0) {
       this.explosionFlashLight.intensity = Math.max(0, this.explosionFlashLight.intensity - dtSec * 18);
     }
@@ -777,10 +985,12 @@ export class Doom3DRenderer {
       let forward = 0;
       let strafe = 0;
 
-      if (this.pressedKeys.has('KeyW') || this.pressedKeys.has('ArrowUp')) forward += 1;
-      if (this.pressedKeys.has('KeyS') || this.pressedKeys.has('ArrowDown')) forward -= 1;
-      if (this.pressedKeys.has('KeyA') || this.pressedKeys.has('ArrowLeft')) strafe -= 1;
-      if (this.pressedKeys.has('KeyD') || this.pressedKeys.has('ArrowRight')) strafe += 1;
+      if (!this.settingsModal.isOpen && !this.cardDraftModal.isOpen) {
+        if (this.pressedKeys.has('KeyW') || this.pressedKeys.has('ArrowUp')) forward += 1;
+        if (this.pressedKeys.has('KeyS') || this.pressedKeys.has('ArrowDown')) forward -= 1;
+        if (this.pressedKeys.has('KeyA') || this.pressedKeys.has('ArrowLeft')) strafe -= 1;
+        if (this.pressedKeys.has('KeyD') || this.pressedKeys.has('ArrowRight')) strafe += 1;
+      }
 
       isMoving = forward !== 0 || strafe !== 0;
 
@@ -795,6 +1005,11 @@ export class Doom3DRenderer {
 
       const rightDir = new THREE.Vector3();
       rightDir.crossVectors(forwardDir, new THREE.Vector3(0, 1, 0)).normalize();
+
+      this.camForwardX = forwardDir.x;
+      this.camForwardZ = forwardDir.z;
+      this.camRightX = rightDir.x;
+      this.camRightZ = rightDir.z;
 
       let moveX = 0;
       let moveY = 0;
@@ -831,14 +1046,13 @@ export class Doom3DRenderer {
       if (!localPlayer.downed && !localPlayer.isDead && snapshot?.roundState === 'active') {
         const deltaX = moveX * speed * dtSec;
         const deltaY = moveY * speed * dtSec;
-        const walls = this.getEffectiveWalls();
         const resolved = resolveMovement(
           this.predictedX,
           this.predictedZ,
           deltaX,
           deltaY,
           SERVER_CONFIG.PLAYER_RADIUS,
-          walls
+          effectiveWalls
         );
         this.predictedX = resolved.x;
         this.predictedZ = resolved.y;
@@ -912,7 +1126,13 @@ export class Doom3DRenderer {
           yaw: serverYaw,
           mouseX: this.predictedX + Math.cos(serverYaw) * 100,
           mouseY: this.predictedZ + Math.sin(serverYaw) * 100,
-          shoot: this.isMouseDown && this.isPointerLocked && !this.shopModal.isOpen && !this.cardDraftModal.isOpen && !localPlayer.isDead
+          shoot:
+            this.isMouseDown &&
+            this.isPointerLocked &&
+            !this.shopModal.isOpen &&
+            !this.cardDraftModal.isOpen &&
+            !this.settingsModal.isOpen &&
+            !localPlayer.isDead
         });
       }
 
@@ -920,13 +1140,30 @@ export class Doom3DRenderer {
       this.updatePrompts(this.predictedX, this.predictedZ, localPlayer);
     }
 
-    // 2. Render 3D Opponents, Barrels & Bullets
+    // Cull & Rotate 3D weapon holograms & Center Reactor
+    for (const ped of this.wallBuyGroups) {
+      const isVis = this.isPointVisibleToPlayer(ped.position.x, ped.position.z, effectiveWalls, 35);
+      ped.visible = isVis;
+      if (isVis) {
+        const wep = ped.getObjectByName('rotating_weapon');
+        if (wep) {
+          wep.rotation.y += dtSec * 1.8;
+          wep.position.y = 27 + Math.sin(timestamp * 0.004) * 3;
+        }
+      }
+    }
+    if (this.centerReactorMesh) {
+      this.centerReactorMesh.rotation.y += dtSec * 0.9;
+      this.centerReactorMesh.rotation.x += dtSec * 0.5;
+    }
+
+    // 2. Render 3D Opponents (ALWAYS visible!), Barrels & Bullets (Culled when behind player/walls)
     if (snapshot) {
       this.updateZombies(snapshot.zombies, dtSec);
       this.updateOpponents(snapshot.players, dtSec);
-      this.updatePowerups(snapshot.powerUps);
-      this.updateBarrels(snapshot.barrels, timestamp);
-      this.update3DTracers(snapshot);
+      this.updatePowerups(snapshot.powerUps, effectiveWalls);
+      this.updateBarrels(snapshot.barrels, timestamp, effectiveWalls);
+      this.update3DTracers(snapshot, timestamp, effectiveWalls);
     }
 
     // 3. Update 3D Floating Damage Numbers
@@ -986,6 +1223,15 @@ export class Doom3DRenderer {
     // 6. Render 3D Scene
     this.renderer.render(this.scene, this.camera);
 
+    // 7. Update FPS & Occlusion Culling Telemetry every 400ms
+    this.fpsFrameCount++;
+    if (timestamp - this.fpsLastTime >= 400) {
+      this.currentFps = Math.round((this.fpsFrameCount * 1000) / (timestamp - this.fpsLastTime));
+      this.fpsFrameCount = 0;
+      this.fpsLastTime = timestamp;
+      this.hud.updateFps(this.currentFps, this.culledObjectsCount);
+    }
+
     requestAnimationFrame((t) => this.renderLoop(t));
   }
 
@@ -1028,6 +1274,10 @@ export class Doom3DRenderer {
         model.group.position.set(p.x, 0, p.y);
         model.lastX = p.x;
         model.lastZ = p.y;
+        // Disable frustum culling on opponent meshes so X-Ray Wallhack is ALWAYS rendered!
+        model.group.traverse((child) => {
+          child.frustumCulled = false;
+        });
         this.scene.add(model.group);
         this.playerModels.set(p.id, model);
 
@@ -1043,11 +1293,12 @@ export class Doom3DRenderer {
           depthWrite: false
         });
         const hpSprite = new THREE.Sprite(hpMat);
+        hpSprite.frustumCulled = false;
         hpSprite.renderOrder = 999;
         hpSprite.scale.set(38, 9.5, 1);
         hpSprite.position.set(p.x, 56, p.y);
         this.scene.add(hpSprite);
-        hpBar = { sprite: hpSprite, canvas, ctx, tex: hpTex };
+        hpBar = { sprite: hpSprite, canvas, ctx, tex: hpTex, lastKey: '' };
         this.playerHpBars.set(p.id, hpBar);
       }
 
@@ -1067,6 +1318,7 @@ export class Doom3DRenderer {
         model.group.visible = false;
         if (hpBar) hpBar.sprite.visible = true;
       } else {
+        // Opponent 3D model is NEVER culled by walls so X-Ray Wallhack works at all times!
         model.group.visible = true;
         if (hpBar) hpBar.sprite.visible = true;
 
@@ -1107,51 +1359,56 @@ export class Doom3DRenderer {
         hpBar.sprite.scale.set(38 * distScale, 9.5 * distScale, 1);
         hpBar.sprite.position.set(model.group.position.x, 58 + (distScale - 1) * 7, model.group.position.z);
 
-        const ctx = hpBar.ctx;
-        ctx.clearRect(0, 0, 256, 64);
+        // Dirty-check HP Bar state so we ONLY redraw the 2D Canvas & upload texture when values change!
+        const nextKey = `${p.isDead ? 1 : 0}|${Math.ceil(p.hp)}|${p.maxHp}|${p.roundWins || 0}|${p.killedBy || ''}`;
+        if (hpBar.lastKey !== nextKey) {
+          hpBar.lastKey = nextKey;
+          const ctx = hpBar.ctx;
+          ctx.clearRect(0, 0, 256, 64);
 
-        if (p.isDead) {
-          ctx.fillStyle = 'rgba(9, 13, 22, 0.9)';
-          ctx.fillRect(16, 12, 224, 40);
-          ctx.strokeStyle = '#ef4444';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(16, 12, 224, 40);
+          if (p.isDead) {
+            ctx.fillStyle = 'rgba(9, 13, 22, 0.9)';
+            ctx.fillRect(16, 12, 224, 40);
+            ctx.strokeStyle = '#ef4444';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(16, 12, 224, 40);
 
-          ctx.font = 'bold 16px "Chakra Petch", monospace';
-          ctx.fillStyle = '#ef4444';
-          ctx.textAlign = 'center';
-          ctx.fillText(p.killedBy ? `💀 ZABITY (${p.killedBy})` : `💀 WYELIMINOWANY`, 128, 37);
-        } else {
-          ctx.fillStyle = 'rgba(9, 13, 22, 0.85)';
-          ctx.fillRect(16, 6, 224, 52);
-          ctx.strokeStyle = p.color || '#38bdf8';
-          ctx.lineWidth = 2.5;
-          ctx.strokeRect(16, 6, 224, 52);
+            ctx.font = 'bold 16px "Chakra Petch", monospace';
+            ctx.fillStyle = '#ef4444';
+            ctx.textAlign = 'center';
+            ctx.fillText(p.killedBy ? `💀 ZABITY (${p.killedBy})` : `💀 WYELIMINOWANY`, 128, 37);
+          } else {
+            ctx.fillStyle = 'rgba(9, 13, 22, 0.85)';
+            ctx.fillRect(16, 6, 224, 52);
+            ctx.strokeStyle = p.color || '#38bdf8';
+            ctx.lineWidth = 2.5;
+            ctx.strokeRect(16, 6, 224, 52);
 
-          ctx.font = 'bold 17px "Chakra Petch", monospace';
-          ctx.fillStyle = '#f8fafc';
-          ctx.textAlign = 'center';
-          ctx.fillText(`${p.name} (${p.roundWins || 0}⭐)`, 128, 25);
+            ctx.font = 'bold 17px "Chakra Petch", monospace';
+            ctx.fillStyle = '#f8fafc';
+            ctx.textAlign = 'center';
+            ctx.fillText(`${p.name} (${p.roundWins || 0}⭐)`, 128, 25);
 
-          ctx.fillStyle = '#0f172a';
-          ctx.fillRect(24, 33, 208, 18);
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(24, 33, 208, 18);
 
-          const hpPct = Math.max(0, Math.min(1, p.hp / p.maxHp));
-          const barCol = hpPct > 0.5 ? '#10b981' : hpPct > 0.25 ? '#f59e0b' : '#ef4444';
-          ctx.fillStyle = barCol;
-          ctx.fillRect(24, 33, Math.round(hpPct * 208), 18);
+            const hpPct = Math.max(0, Math.min(1, p.hp / p.maxHp));
+            const barCol = hpPct > 0.5 ? '#10b981' : hpPct > 0.25 ? '#f59e0b' : '#ef4444';
+            ctx.fillStyle = barCol;
+            ctx.fillRect(24, 33, Math.round(hpPct * 208), 18);
 
-          ctx.font = 'bold 13px monospace';
-          ctx.fillStyle = '#ffffff';
-          ctx.fillText(`${Math.ceil(p.hp)} / ${p.maxHp} HP`, 128, 47);
+            ctx.font = 'bold 13px monospace';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(`${Math.ceil(p.hp)} / ${p.maxHp} HP`, 128, 47);
+          }
+
+          hpBar.tex.needsUpdate = true;
         }
-
-        hpBar.tex.needsUpdate = true;
       }
     }
   }
 
-  private updatePowerups(powerUps: any[]): void {
+  private updatePowerups(powerUps: any[], walls: WallRect[]): void {
     const activeIds = new Set(powerUps.map((p) => p.id));
 
     for (const [id, obj] of this.powerupSprites) {
@@ -1173,8 +1430,12 @@ export class Doom3DRenderer {
         this.scene.add(mesh);
         this.powerupSprites.set(pu.id, mesh);
       }
-      mesh.position.set(pu.x, 24 + bob, pu.y);
-      mesh.rotation.y += 0.04;
+      const isVis = this.isPointVisibleToPlayer(pu.x, pu.y, walls, 25);
+      mesh.visible = isVis;
+      if (isVis) {
+        mesh.position.set(pu.x, 24 + bob, pu.y);
+        mesh.rotation.y += 0.04;
+      }
     }
   }
 
@@ -1197,62 +1458,70 @@ export class Doom3DRenderer {
     return this.bulletSpriteTex;
   }
 
-  private update3DTracers(snapshot: GameSnapshot): void {
-    const now = performance.now();
-    for (let i = this.activeTracers.length - 1; i >= 0; i--) {
-      if (now >= this.activeTracers[i].dieTime) {
-        this.scene.remove(this.activeTracers[i].mesh);
-        if ('geometry' in this.activeTracers[i].mesh) {
-          (this.activeTracers[i].mesh as any).geometry.dispose();
-        }
-        if ('material' in this.activeTracers[i].mesh) {
-          (this.activeTracers[i].mesh as any).material.dispose();
-        }
-        this.activeTracers.splice(i, 1);
-      }
-    }
+  /**
+   * Zero-Allocation Pooled Bullet & Tracer Renderer with Frustum + Wall-Occlusion Culling.
+   * Bullets behind the player or behind walls are NOT rendered!
+   */
+  private update3DTracers(snapshot: GameSnapshot, timestamp: number, walls: WallRect[]): void {
+    const interpSec = Math.min(0.06, Math.max(0, (timestamp - this.lastSnapshotTime) / 1000));
+    let poolIdx = 0;
+    const poolLen = this.bulletPool.length;
 
-    for (const b of snapshot.bullets) {
-      const len = 0.032;
-      const tailX = b.x - b.vx * len;
-      const tailZ = b.y - b.vy * len;
+    for (let i = 0; i < snapshot.bullets.length; i++) {
+      if (poolIdx >= poolLen) break;
+      const b = snapshot.bullets[i];
+
+      const bx = b.x + b.vx * interpSec;
+      const bz = b.y + b.vy * interpSec;
+
+      // Skip rendering bullets that are behind the player or occluded behind a wall!
+      if (!this.isPointVisibleToPlayer(bx, bz, walls, b.bulletRadius || 8)) {
+        continue;
+      }
 
       let col = 0x38bdf8;
       if (b.weaponId === 'shotgun' || b.weaponId === 'flamethrower') col = 0xf97316;
-      if (b.weaponId === 'raygun') col = 0x22c55e;
-      if (b.weaponId === 'sniper') col = 0xe879f9;
-      if (b.weaponId === 'minigun') col = 0xfacc15;
-      if (b.weaponId === 'rpg') col = 0xef4444;
-      if (b.weaponId === 'crossbow') col = 0xc084fc;
-      if (b.weaponId === 'gauss') col = 0x06b6d4;
+      else if (b.weaponId === 'raygun') col = 0x22c55e;
+      else if (b.weaponId === 'sniper') col = 0xe879f9;
+      else if (b.weaponId === 'minigun') col = 0xfacc15;
+      else if (b.weaponId === 'rpg') col = 0xef4444;
+      else if (b.weaponId === 'crossbow') col = 0xc084fc;
+      else if (b.weaponId === 'gauss') col = 0x06b6d4;
       if (b.isTesla) col = 0xa855f7;
       if (b.bouncesLeft > 0) col = 0xec4899;
 
-      const pts = [new THREE.Vector3(tailX, 24, tailZ), new THREE.Vector3(b.x, 24, b.y)];
-      const geo = new THREE.BufferGeometry().setFromPoints(pts);
-      const mat = new THREE.LineBasicMaterial({ color: col, linewidth: 2 });
-      const line = new THREE.Line(geo, mat);
-      this.scene.add(line);
-      this.activeTracers.push({ mesh: line, dieTime: now + 40 });
-
+      const entry = this.bulletPool[poolIdx++];
       const radius = b.bulletRadius || 5;
       const spriteSize = Math.min(82, Math.max(10, radius * 3.2));
-      const sMat = new THREE.SpriteMaterial({
-        map: this.getBulletTexture(),
-        color: col,
-        blending: THREE.AdditiveBlending,
-        transparent: true,
-        depthWrite: false
-      });
-      const sprite = new THREE.Sprite(sMat);
-      sprite.scale.set(spriteSize, spriteSize, 1);
-      sprite.position.set(b.x, 24, b.y);
-      this.scene.add(sprite);
-      this.activeTracers.push({ mesh: sprite, dieTime: now + 40 });
+
+      entry.spriteMat.color.setHex(col);
+      entry.sprite.scale.set(spriteSize, spriteSize, 1);
+      entry.sprite.position.set(bx, 24, bz);
+      entry.sprite.visible = true;
+
+      const speed = Math.hypot(b.vx, b.vy);
+      const tracerLen = Math.min(48, Math.max(12, speed * 0.028));
+      const yawAngle = Math.atan2(b.vx, b.vy);
+
+      entry.tracerMat.color.setHex(col);
+      entry.tracer.scale.set(Math.max(1, radius * 0.25), Math.max(1, radius * 0.25), tracerLen);
+      entry.tracer.rotation.set(0, yawAngle, 0);
+      entry.tracer.position.set(
+        bx - (b.vx / (speed || 1)) * (tracerLen * 0.5),
+        24,
+        bz - (b.vy / (speed || 1)) * (tracerLen * 0.5)
+      );
+      entry.tracer.visible = true;
+    }
+
+    // Hide remaining unused pooled bullets
+    for (let i = poolIdx; i < poolLen; i++) {
+      this.bulletPool[i].sprite.visible = false;
+      this.bulletPool[i].tracer.visible = false;
     }
   }
 
-  private updateBarrels(barrels: any[], timestamp: number): void {
+  private updateBarrels(barrels: any[], timestamp: number, walls: WallRect[]): void {
     if (!barrels) return;
     const activeIds = new Set<string>();
 
@@ -1264,7 +1533,7 @@ export class Doom3DRenderer {
       if (!barrelGroup) {
         barrelGroup = new THREE.Group();
 
-        const bodyGeo = new THREE.CylinderGeometry(14, 14, 34, 16);
+        const bodyGeo = new THREE.CylinderGeometry(14, 14, 34, 14);
         const bodyMat = new THREE.MeshStandardMaterial({
           map: this.textures.explosiveBarrel,
           roughness: 0.3,
@@ -1276,7 +1545,7 @@ export class Doom3DRenderer {
         bodyMesh.receiveShadow = true;
         barrelGroup.add(bodyMesh);
 
-        const capGeo = new THREE.CylinderGeometry(15.2, 15.2, 3, 16);
+        const capGeo = new THREE.CylinderGeometry(15.2, 15.2, 3, 14);
         const capMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.9, roughness: 0.2 });
         const topCap = new THREE.Mesh(capGeo, capMat);
         topCap.position.y = 33.5;
@@ -1285,7 +1554,7 @@ export class Doom3DRenderer {
         barrelGroup.add(topCap, botCap);
 
         const glowRing = new THREE.Mesh(
-          new THREE.TorusGeometry(10, 1.5, 8, 20),
+          new THREE.TorusGeometry(10, 1.5, 8, 18),
           new THREE.MeshBasicMaterial({ color: 0xef4444 })
         );
         glowRing.rotation.x = Math.PI / 2;
@@ -1296,7 +1565,12 @@ export class Doom3DRenderer {
         barrelGroup.position.set(b.x, 0, b.y);
         this.scene.add(barrelGroup);
         this.barrelMeshes.set(b.id, barrelGroup);
-      } else {
+      }
+
+      // Cull barrel if behind player or occluded behind a wall!
+      const isVis = this.isPointVisibleToPlayer(b.x, b.y, walls, 24);
+      barrelGroup.visible = isVis;
+      if (isVis) {
         barrelGroup.position.set(b.x, 0, b.y);
         const ring = barrelGroup.getObjectByName('hazard_ring');
         if (ring) {
@@ -1348,6 +1622,8 @@ export class Doom3DRenderer {
 
   public destroy(): void {
     this.isRunning = false;
+    this.unsubscribeSettings?.();
+
     for (const [_, hpBar] of this.playerHpBars) {
       hpBar.tex.dispose();
       hpBar.sprite.material.dispose();
@@ -1355,6 +1631,15 @@ export class Doom3DRenderer {
     this.playerHpBars.clear();
     this.playerModels.clear();
     this.barrelMeshes.clear();
+
+    for (const entry of this.bulletPool) {
+      this.scene.remove(entry.sprite);
+      this.scene.remove(entry.tracer);
+      entry.spriteMat.dispose();
+      entry.tracerMat.dispose();
+    }
+    this.bulletPool = [];
+    this.sharedTracerGeo.dispose();
 
     for (const exp of this.activeExplosions) {
       this.scene.remove(exp.group);
@@ -1370,6 +1655,7 @@ export class Doom3DRenderer {
     this.hud.destroy();
     this.shopModal.destroy();
     this.cardDraftModal.destroy();
+    this.settingsModal.destroy();
     this.renderer.dispose();
   }
 }
