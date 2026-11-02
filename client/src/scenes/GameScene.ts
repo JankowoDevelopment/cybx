@@ -123,6 +123,11 @@ export class GameScene extends Phaser.Scene {
     // Window keyboard listeners (ensures simultaneous key presses like W+A are 100% captured without ghosting)
     window.addEventListener('keydown', (e) => {
       this.pressedKeys.add(e.code);
+      if (e.code === 'KeyB') {
+        this.shopModal.toggle();
+      } else if (e.code === 'Escape' && this.shopModal.isOpen) {
+        this.shopModal.close();
+      }
     });
     window.addEventListener('keyup', (e) => {
       this.pressedKeys.delete(e.code);

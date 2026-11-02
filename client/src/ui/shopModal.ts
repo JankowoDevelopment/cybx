@@ -10,6 +10,8 @@ export class ShopModal {
   private spiritContainer: HTMLElement;
   private closeBtn: HTMLElement;
   public isOpen: boolean = false;
+  public onOpen?: () => void;
+  public onClose?: () => void;
 
   private currentPoints: number = 0;
   private ownedItems: string[] = [];
@@ -22,14 +24,9 @@ export class ShopModal {
     this.spiritContainer = document.getElementById('spirit-items-container')!;
     this.closeBtn = document.getElementById('shop-close-btn')!;
 
-    this.closeBtn.addEventListener('click', () => this.close());
-
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'b' || e.key === 'B') {
-        this.toggle();
-      } else if (e.key === 'Escape' && this.isOpen) {
-        this.close();
-      }
+    this.closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.close();
     });
 
     this.renderCatalog();
@@ -47,11 +44,13 @@ export class ShopModal {
     this.isOpen = true;
     this.overlay.classList.add('open');
     this.updateButtons();
+    this.onOpen?.();
   }
 
   public close(): void {
     this.isOpen = false;
     this.overlay.classList.remove('open');
+    this.onClose?.();
   }
 
   public updatePlayerData(points: number, items: string[]): void {

@@ -206,6 +206,14 @@ export class Doom3DRenderer {
   }
 
   private setupEvents(): void {
+    // Wire ShopModal Open/Close to HUD so pointer lock notice never obstructs the shop
+    this.shopModal.onOpen = () => {
+      this.hud.setShopOpen(true);
+    };
+    this.shopModal.onClose = () => {
+      this.hud.setShopOpen(false);
+    };
+
     // Pointer Lock on Click
     const lockHandler = () => {
       if (!this.shopModal.isOpen && !this.isPointerLocked) {
@@ -248,8 +256,18 @@ export class Doom3DRenderer {
       this.pressedKeys.add(e.code);
 
       if (e.code === 'KeyB') {
-        if (this.isPointerLocked) document.exitPointerLock();
-        this.shopModal.toggle();
+        if (this.shopModal.isOpen) {
+          this.shopModal.close();
+        } else {
+          if (this.isPointerLocked) {
+            document.exitPointerLock();
+          }
+          this.shopModal.open();
+        }
+      } else if (e.code === 'Escape') {
+        if (this.shopModal.isOpen) {
+          this.shopModal.close();
+        }
       } else if (e.code === 'KeyR') {
         networkManager.send({ type: 'reload' });
       } else if (e.code === 'KeyE') {

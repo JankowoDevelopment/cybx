@@ -60,8 +60,8 @@ export class DoomHud {
 
       <!-- Center Pointer Lock Notice -->
       <div id="hud-pointerlock-notice" style="position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.88); border: 2px solid #ef4444; padding: 18px 32px; border-radius: 12px; color: #fff; font-size: 18px; font-weight: 900; text-align: center; letter-spacing: 1px; pointer-events: auto; cursor: pointer; box-shadow: 0 0 35px rgba(0,0,0,0.9);">
-        🖱️ KLIKNIJ TUTAJ, ABY WŁĄCZYĆ MYSZKĘ (ARENA 1v1v1v1)<br>
-        <span style="font-size: 13px; color: #94a3b8; font-family: 'Inter', sans-serif;">[WASD] Ruch &bull; [Mysz] Celowanie & Strzał &bull; [ESC/B] Zwolnienie kursora &bull; [Spacja] Dash</span>
+        🖱️ KLIKNIJ TUTAJ, ABY WŁĄCZYĆ STEROWANIE MYSZKĄ<br>
+        <span style="font-size: 13px; color: #94a3b8; font-family: 'Inter', sans-serif;">[WASD] Ruch &bull; [Mysz] Celowanie & Strzał &bull; [B] Sklep Deadlocka &bull; [ESC] Zwolnij myszkę</span>
       </div>
 
       <!-- Center Elimination / Respawn Alert -->
@@ -113,8 +113,26 @@ export class DoomHud {
     this.damageFlash = this.container.querySelector('#hud-damage-flash')!;
   }
 
+  private isLocked: boolean = false;
+  private isShopOpen: boolean = false;
+
   public setPointerLocked(isLocked: boolean): void {
-    this.pointerLockPrompt.style.display = isLocked ? 'none' : 'block';
+    this.isLocked = isLocked;
+    this.updateNoticeVisibility();
+  }
+
+  public setShopOpen(isOpen: boolean): void {
+    this.isShopOpen = isOpen;
+    this.updateNoticeVisibility();
+  }
+
+  private updateNoticeVisibility(): void {
+    // When shop is open OR pointer is locked, do not display the click-to-lock notice!
+    if (this.isLocked || this.isShopOpen) {
+      this.pointerLockPrompt.style.display = 'none';
+    } else {
+      this.pointerLockPrompt.style.display = 'block';
+    }
   }
 
   public setPrompt(text: string | null): void {

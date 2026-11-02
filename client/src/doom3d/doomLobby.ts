@@ -110,9 +110,10 @@ export class DoomLobby {
         <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #2d1515; font-size: 11px; color: #94a3b8; line-height: 1.7; text-align: left; font-family: 'Inter', sans-serif;">
           🎮 <b>Sterowanie Arena 3D:</b><br>
           &bull; <b>[Kliknięcie w ekran]</b> Zablokowanie myszki (Pointer Lock)<br>
-          &bull; <b>[WASD]</b> Płynny ruch w 3D wg widoku kamery (przód, tył, strafe lewo/prawo)<br>
+          &bull; <b>[WASD]</b> Płynny ruch w 3D (przód, tył, strafe lewo/prawo)<br>
           &bull; <b>[Myszka]</b> Rozglądanie 3D &bull; <b>[LPM]</b> Strzał do przeciwników<br>
-          &bull; <b>[Spacja]</b> Dash &bull; <b>[R]</b> Przeładowanie &bull; <b>[E]</b> Podnoszenie broni ze ścian &bull; <b>[B/ESC]</b> Sklep
+          &bull; <b>[B]</b> Otwórz / Zamknij Sklep Deadlocka &bull; <b>[ESC]</b> Zwolnij myszkę<br>
+          &bull; <b>[Spacja]</b> Dash &bull; <b>[R]</b> Przeładowanie &bull; <b>[E]</b> Podnoszenie broni ze ścian
         </div>
       </div>
     `;
