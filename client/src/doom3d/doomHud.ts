@@ -1,6 +1,7 @@
 import { PlayerState, GameSnapshot } from '@shared/types.js';
 import { WEAPONS } from '@shared/weapons.js';
 import { ROUNDS_CARDS } from '@shared/cards.js';
+import { soundSystem } from '../audio/soundSystem.js';
 
 export class DoomHud {
   private container: HTMLElement;
@@ -20,8 +21,12 @@ export class DoomHud {
   private deadWinnerEl: HTMLElement;
   private respawnCountdown: HTMLElement;
   private damageFlash: HTMLElement;
+  private cinematicOverlayEl: HTMLElement;
+  private cinematicRoundEl: HTMLElement;
+  private cinematicNumberEl: HTMLElement;
 
   private lastHp: number = 100;
+  private lastCountdownSecond: number = -1;
 
   constructor() {
     this.container = document.createElement('div');
@@ -78,6 +83,23 @@ export class DoomHud {
         <div id="hud-respawn-countdown" style="font-size: 15px; font-weight: 700; color: #38bdf8; margin-top: 10px; letter-spacing: 1px;">TRWA WALKA POZOSTAŁYCH GRACZY...</div>
       </div>
 
+      <!-- Cinematic Countdown Overlay (Letterbox bars + Giant 3-2-1-WALKA) -->
+      <div id="hud-cinematic-overlay" style="display: none; position: absolute; inset: 0; pointer-events: none; z-index: 40;">
+        <div style="position: absolute; top: 0; left: 0; width: 100%; height: 9vh; background: linear-gradient(180deg, #020408 75%, transparent 100%); border-bottom: 2px solid rgba(56, 189, 248, 0.4);"></div>
+        <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 9vh; background: linear-gradient(0deg, #020408 75%, transparent 100%); border-top: 2px solid rgba(56, 189, 248, 0.4);"></div>
+        <div style="position: absolute; top: 46%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+          <div id="hud-cinematic-round" style="font-size: 22px; font-weight: 900; color: #38bdf8; letter-spacing: 6px; text-transform: uppercase; text-shadow: 0 0 20px rgba(56, 189, 248, 0.8); margin-bottom: 6px;">
+            RUNDA 1 — PRZYGOTUJ SIĘ
+          </div>
+          <div id="hud-cinematic-number" style="font-size: 120px; font-weight: 900; color: #fbbf24; line-height: 1; letter-spacing: 4px; text-shadow: 0 0 50px rgba(251, 191, 36, 0.9), 0 0 15px #ffffff; transition: transform 0.15s ease-out;">
+            3
+          </div>
+          <div style="font-size: 13px; font-weight: 800; color: #94a3b8; letter-spacing: 3px; margin-top: 10px; background: rgba(9, 13, 22, 0.8); padding: 6px 18px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.12);">
+            🔒 SYSTEMY ZABLOKOWANE DO STARTU RUNDY
+          </div>
+        </div>
+      </div>
+
       <!-- Bottom Left: Cyber Mode Badge -->
       <div id="hud-mode" style="position: absolute; bottom: 24px; left: 26px; background: rgba(15,23,42,0.65); backdrop-filter: blur(8px); border-left: 4px solid #ef4444; padding: 8px 16px; border-radius: 6px;">
         <div style="font-size: 10px; color: #94a3b8; font-weight: 700; letter-spacing: 2px;">CYBER ARENA</div>
@@ -125,6 +147,9 @@ export class DoomHud {
     this.deadWinnerEl = this.container.querySelector('#hud-dead-winner')!;
     this.respawnCountdown = this.container.querySelector('#hud-respawn-countdown')!;
     this.damageFlash = this.container.querySelector('#hud-damage-flash')!;
+    this.cinematicOverlayEl = this.container.querySelector('#hud-cinematic-overlay')!;
+    this.cinematicRoundEl = this.container.querySelector('#hud-cinematic-round')!;
+    this.cinematicNumberEl = this.container.querySelector('#hud-cinematic-number')!;
   }
 
   public addEventFeed(text: string, color: string = '#38bdf8'): void {
@@ -251,7 +276,32 @@ export class DoomHud {
     const dashPct = player.dashCooldownRemaining > 0 ? (1 - player.dashCooldownRemaining / 4000) * 100 : 100;
     this.dashFillEl.style.width = `${Math.max(0, Math.min(100, dashPct))}%`;
 
-    // 6. Elimination Alert (shows who killed you & who won the round)
+    // 6. Cinematic Pre-Round Countdown Overlay
+    if (snapshot.roundState === 'countdown') {
+      this.cinematicOverlayEl.style.display = 'block';
+      this.cinematicRoundEl.textContent = `⚔ RUNDA ${snapshot.round} — PRZYGOTUJ SIĘ`;
+      const secLeft = Math.ceil(snapshot.roundTimer / 1000);
+      if (secLeft !== this.lastCountdownSecond) {
+        this.lastCountdownSecond = secLeft;
+        soundSystem.playSound('hit');
+        this.cinematicNumberEl.style.transform = 'scale(1.28)';
+        setTimeout(() => {
+          if (this.cinematicNumberEl) this.cinematicNumberEl.style.transform = 'scale(1.0)';
+        }, 140);
+      }
+      if (snapshot.roundTimer <= 450) {
+        this.cinematicNumberEl.textContent = 'WALKA!';
+        this.cinematicNumberEl.style.color = '#ef4444';
+      } else {
+        this.cinematicNumberEl.textContent = `${Math.min(3, secLeft)}`;
+        this.cinematicNumberEl.style.color = secLeft === 1 ? '#ef4444' : secLeft === 2 ? '#fbbf24' : '#38bdf8';
+      }
+    } else {
+      this.cinematicOverlayEl.style.display = 'none';
+      this.lastCountdownSecond = -1;
+    }
+
+    // 7. Elimination Alert (shows who killed you & who won the round)
     if (player.isDead) {
       this.deadAlert.style.display = 'block';
       this.deadTitleEl.textContent = player.killedBy

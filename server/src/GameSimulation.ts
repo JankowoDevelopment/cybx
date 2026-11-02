@@ -47,7 +47,7 @@ export class GameSimulation {
   public mysteryBox?: MysteryBoxState;
 
   public round: number = 1;
-  public roundState: 'waiting' | 'active' | 'card_pick' | 'round_over' | 'gameover' = 'waiting';
+  public roundState: 'waiting' | 'countdown' | 'active' | 'card_pick' | 'round_over' | 'gameover' = 'waiting';
   public roundTimer: number = 0; // ms
   public cardPickerId: string | null = null;
   public cardPickerName: string | null = null;
@@ -152,8 +152,8 @@ export class GameSimulation {
 
   public startGame(): void {
     this.round = 1;
-    this.roundState = 'active';
-    this.roundTimer = 0;
+    this.roundState = 'countdown';
+    this.roundTimer = 3500;
     this.cardPickerId = null;
     this.cardPickerName = null;
     this.offeredCards = [];
@@ -162,7 +162,7 @@ export class GameSimulation {
     this.cardPickQueue = [];
     this.pendingBursts = [];
 
-    // Reset stats & respawn players at arena sides
+    // Reset stats & respawn players at arena sides facing the center
     const playerIds = Array.from(this.players.keys());
     for (let i = 0; i < playerIds.length; i++) {
       const p = this.players.get(playerIds[i])!;
@@ -179,12 +179,12 @@ export class GameSimulation {
       const spawn = this.map.playerSpawns[i % this.map.playerSpawns.length];
       p.x = spawn.x;
       p.y = spawn.y;
+      p.angle = Math.atan2(this.map.height / 2 - p.y, this.map.width / 2 - p.x);
     }
 
     this.barrels = JSON.parse(JSON.stringify(this.map.initialBarrels || []));
 
-    this.onGameEvent?.('round_start', `⚔ ROUNDS 1v1v1v1: RUNDA 1 ROZPOCZĘTA!`, '#ef4444');
-    this.onSoundEvent?.('round_start');
+    this.onGameEvent?.('round_countdown', `🎬 PRZYGOTUJ SIĘ — RUNDA 1 ZA CHWILĘ!`, '#38bdf8');
   }
 
   public getMaxClipForPlayer(player: PlayerState): number {
@@ -270,8 +270,8 @@ export class GameSimulation {
 
   public startNextRound(): void {
     this.round++;
-    this.roundState = 'active';
-    this.roundTimer = 0;
+    this.roundState = 'countdown';
+    this.roundTimer = 3500;
     this.cardPickerId = null;
     this.cardPickerName = null;
     this.offeredCards = [];
@@ -299,13 +299,13 @@ export class GameSimulation {
       const spawn = this.map.playerSpawns[spawnIdx];
       p.x = spawn.x;
       p.y = spawn.y;
+      p.angle = Math.atan2(this.map.height / 2 - p.y, this.map.width / 2 - p.x);
     }
 
     // Reset all explosive barrels for the new round
     this.barrels = JSON.parse(JSON.stringify(this.map.initialBarrels || []));
 
-    this.onGameEvent?.('round_start', `⚔ RUNDA ${this.round} ROZPOCZĘTA!`, '#ef4444');
-    this.onSoundEvent?.('round_start');
+    this.onGameEvent?.('round_countdown', `🎬 PRZYGOTUJ SIĘ — RUNDA ${this.round} ZA CHWILĘ!`, '#38bdf8');
   }
 
   public getEffectiveWalls(): WallRect[] {
@@ -423,6 +423,7 @@ export class GameSimulation {
   }
 
   public triggerDash(playerId: string): void {
+    if (this.roundState !== 'active') return;
     const player = this.players.get(playerId);
     if (!player || player.downed || player.dashCooldownRemaining > 0 || player.isDashing) return;
 
@@ -595,7 +596,18 @@ export class GameSimulation {
     const dtSec = dtMs / 1000;
     const walls = this.getEffectiveWalls();
 
-    // 0. Wstrzymaj symulację podczas wyboru kart i odliczaj czas wyboru
+    // 0a. Cinematic Countdown przed rozpoczęciem rundy (nikt nie może się ruszać ani strzelać)
+    if (this.roundState === 'countdown') {
+      this.roundTimer = Math.max(0, this.roundTimer - dtMs);
+      if (this.roundTimer <= 0) {
+        this.roundState = 'active';
+        this.onGameEvent?.('round_start', `⚔ RUNDA ${this.round} ROZPOCZĘTA — WALKA!`, '#ef4444');
+        this.onSoundEvent?.('round_start');
+      }
+      return;
+    }
+
+    // 0b. Wstrzymaj symulację podczas wyboru kart i odliczaj czas wyboru
     if (this.roundState === 'card_pick') {
       this.roundTimer = Math.max(0, this.roundTimer - dtMs);
       if (this.roundTimer <= 0) {

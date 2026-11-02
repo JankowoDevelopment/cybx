@@ -169,7 +169,7 @@ export interface MysteryBoxState {
   spinTimer: number;
 }
 
-export type RoundState = 'waiting' | 'active' | 'card_pick' | 'round_over' | 'gameover';
+export type RoundState = 'waiting' | 'countdown' | 'active' | 'card_pick' | 'round_over' | 'gameover';
 
 export interface ActivePowerUps {
   instaKill: number; // remaining ms

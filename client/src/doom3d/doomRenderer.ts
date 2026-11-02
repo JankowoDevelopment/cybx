@@ -490,7 +490,7 @@ export class Doom3DRenderer {
     });
 
     document.addEventListener('mousemove', (e) => {
-      if (this.isPointerLocked) {
+      if (this.isPointerLocked && this.latestSnapshot?.roundState !== 'countdown') {
         this.yaw -= e.movementX * 0.0022;
         this.pitch -= e.movementY * 0.0022;
         this.pitch = Math.max(-Math.PI * 0.44, Math.min(Math.PI * 0.44, this.pitch));
@@ -498,7 +498,13 @@ export class Doom3DRenderer {
     });
 
     document.addEventListener('mousedown', (e) => {
-      if (e.button === 0 && this.isPointerLocked && !this.shopModal.isOpen && !this.cardDraftModal.isOpen) {
+      if (
+        e.button === 0 &&
+        this.isPointerLocked &&
+        !this.shopModal.isOpen &&
+        !this.cardDraftModal.isOpen &&
+        this.latestSnapshot?.roundState === 'active'
+      ) {
         this.isMouseDown = true;
       }
     });
@@ -509,18 +515,21 @@ export class Doom3DRenderer {
     });
 
     window.addEventListener('keydown', (e) => {
+      if (this.cardDraftModal.isOpen) return;
       this.pressedKeys.add(e.code);
 
       if (e.code === 'Escape') {
         if (this.shopModal.isOpen) {
           this.shopModal.close();
         }
-      } else if (e.code === 'KeyR') {
-        networkManager.send({ type: 'reload' });
-      } else if (e.code === 'KeyE') {
-        networkManager.send({ type: 'interact' });
-      } else if (e.code === 'Space') {
-        networkManager.send({ type: 'dash' });
+      } else if (this.latestSnapshot?.roundState === 'active') {
+        if (e.code === 'KeyR') {
+          networkManager.send({ type: 'reload' });
+        } else if (e.code === 'KeyE') {
+          networkManager.send({ type: 'interact' });
+        } else if (e.code === 'Space') {
+          networkManager.send({ type: 'dash' });
+        }
       }
     });
 
@@ -564,7 +573,7 @@ export class Doom3DRenderer {
             this.hud.setShopOpen(true);
           }
         }
-      } else if (snapshot.roundState === 'active') {
+      } else if (snapshot.roundState === 'active' || snapshot.roundState === 'countdown') {
         if (this.cardDraftModal.isOpen) {
           this.currentDraftPickerId = null;
           this.cardDraftModal.hide();
@@ -852,22 +861,45 @@ export class Doom3DRenderer {
       }
 
       const eyeHeight = localPlayer.downed || localPlayer.isDead ? 10 : 34;
-      let bobY = 0;
-      if (isMoving && !localPlayer.downed && !localPlayer.isDead) {
-        this.headBobTimer += dtSec * 10;
-        bobY = Math.sin(this.headBobTimer) * 1.4;
-      } else {
-        this.headBobTimer = 0;
-      }
 
-      this.camera.position.x = this.predictedX;
-      this.camera.position.z = this.predictedZ;
-      this.camera.position.y = eyeHeight + bobY;
+      if (snapshot?.roundState === 'countdown') {
+        // Cinematic Pre-Round Aerial Camera Sweep into First-Person View (All controls locked)
+        this.isMouseDown = false;
+        this.weaponRenderer.weaponGroup.visible = false;
+
+        const t = Math.max(0, Math.min(1, snapshot.roundTimer / 3500));
+        const ease = t * t * (3 - 2 * t);
+        const centerAngle = Math.atan2(this.mapData.height / 2 - localPlayer.y, this.mapData.width / 2 - localPlayer.x);
+
+        this.yaw = -centerAngle - Math.PI / 2;
+        this.pitch = -ease * 0.38;
+
+        this.camera.rotation.set(0, 0, 0, 'YXZ');
+        this.camera.rotation.y = this.yaw + Math.sin(t * Math.PI) * 0.22;
+        this.camera.rotation.x = this.pitch;
+
+        this.camera.position.x = localPlayer.x - Math.cos(centerAngle) * ease * 210;
+        this.camera.position.z = localPlayer.y - Math.sin(centerAngle) * ease * 210;
+        this.camera.position.y = eyeHeight + ease * 220;
+      } else {
+        this.weaponRenderer.weaponGroup.visible = true;
+        let bobY = 0;
+        if (isMoving && !localPlayer.downed && !localPlayer.isDead) {
+          this.headBobTimer += dtSec * 10;
+          bobY = Math.sin(this.headBobTimer) * 1.4;
+        } else {
+          this.headBobTimer = 0;
+        }
+
+        this.camera.position.x = this.predictedX;
+        this.camera.position.z = this.predictedZ;
+        this.camera.position.y = eyeHeight + bobY;
+      }
 
       const serverYaw = Math.atan2(forwardDir.z, forwardDir.x);
 
       // Throttle network input packets to ~33Hz (30ms) to keep WebSocket & Server CPU fast
-      if (timestamp - this.lastInputSendTime >= 30) {
+      if (snapshot?.roundState === 'active' && timestamp - this.lastInputSendTime >= 30) {
         this.lastInputSendTime = timestamp;
         networkManager.send({
           type: 'input',
