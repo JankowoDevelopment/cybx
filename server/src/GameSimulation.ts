@@ -26,6 +26,9 @@ export interface PlayerInput {
   mouseX: number;
   mouseY: number;
   shoot: boolean;
+  yaw?: number;
+  moveX?: number;
+  moveY?: number;
 }
 
 export class GameSimulation {
@@ -431,14 +434,20 @@ export class GameSimulation {
         if (input) {
           let moveX = 0;
           let moveY = 0;
-          if (input.up) moveY -= 1;
-          if (input.down) moveY += 1;
-          if (input.left) moveX -= 1;
-          if (input.right) moveX += 1;
 
-          if (moveX !== 0 && moveY !== 0) {
-            moveX *= 0.7071;
-            moveY *= 0.7071;
+          if (input.moveX !== undefined && input.moveY !== undefined) {
+            moveX = input.moveX;
+            moveY = input.moveY;
+          } else {
+            if (input.up) moveY -= 1;
+            if (input.down) moveY += 1;
+            if (input.left) moveX -= 1;
+            if (input.right) moveX += 1;
+
+            if (moveX !== 0 && moveY !== 0) {
+              moveX *= 0.7071;
+              moveY *= 0.7071;
+            }
           }
 
           const deltaX = moveX * speed * dtSec;
@@ -456,8 +465,12 @@ export class GameSimulation {
           player.x = resolved.x;
           player.y = resolved.y;
 
-          // Aim angle
-          player.angle = Math.atan2(input.mouseY - player.y, input.mouseX - player.x);
+          // Aim angle (supports both 3D yaw and 2D mouse position)
+          if (input.yaw !== undefined) {
+            player.angle = input.yaw;
+          } else {
+            player.angle = Math.atan2(input.mouseY - player.y, input.mouseX - player.x);
+          }
 
           // Shooting
           if (input.shoot && !player.isReloading) {

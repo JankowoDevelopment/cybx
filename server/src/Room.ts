@@ -131,7 +131,10 @@ export class Room {
           right: packet.right,
           mouseX: packet.mouseX,
           mouseY: packet.mouseY,
-          shoot: packet.shoot
+          shoot: packet.shoot,
+          yaw: packet.yaw,
+          moveX: packet.moveX,
+          moveY: packet.moveY
         });
         break;
 
