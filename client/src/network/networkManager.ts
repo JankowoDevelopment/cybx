@@ -5,11 +5,11 @@ export class NetworkManager {
   public playerId: string = '';
   public roomCode: string = '';
   public isHost: boolean = false;
-  public lastGameInitPacket: { map: any; doors: DoorState[]; wallBuys: WallBuyState[]; mysteryBox: MysteryBoxState } | null = null;
+  public lastGameInitPacket: { map: any; doors: DoorState[]; wallBuys: WallBuyState[]; mysteryBox?: MysteryBoxState } | null = null;
 
   public onRoomJoined?: (data: { roomCode: string; playerId: string; isHost: boolean }) => void;
   public onLobbyUpdate?: (data: { players: { id: string; name: string; isHost: boolean }[]; canStart: boolean }) => void;
-  public onGameInit?: (data: { map: any; doors: DoorState[]; wallBuys: WallBuyState[]; mysteryBox: MysteryBoxState }) => void;
+  public onGameInit?: (data: { map: any; doors: DoorState[]; wallBuys: WallBuyState[]; mysteryBox?: MysteryBoxState }) => void;
   public onSnapshot?: (snapshot: GameSnapshot) => void;
   public onSoundEvent?: (sound: string, weapon?: any, shooterId?: string) => void;
   public onGameEvent?: (event: string, text?: string, color?: string) => void;

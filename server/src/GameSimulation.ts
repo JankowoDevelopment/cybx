@@ -42,7 +42,7 @@ export class GameSimulation {
   public powerUps: PowerUpState[] = [];
   public doors: DoorState[] = [];
   public wallBuys: WallBuyState[] = [];
-  public mysteryBox: MysteryBoxState;
+  public mysteryBox?: MysteryBoxState;
 
   public round: number = 1;
   public roundState: 'waiting' | 'active' | 'card_pick' | 'round_over' | 'gameover' = 'waiting';
@@ -72,7 +72,7 @@ export class GameSimulation {
     this.map = createDefaultMap();
     this.doors = JSON.parse(JSON.stringify(this.map.initialDoors));
     this.wallBuys = JSON.parse(JSON.stringify(this.map.wallBuys));
-    this.mysteryBox = JSON.parse(JSON.stringify(this.map.mysteryBox));
+    this.mysteryBox = this.map.mysteryBox ? JSON.parse(JSON.stringify(this.map.mysteryBox)) : undefined;
   }
 
   public addPlayer(id: string, name: string): PlayerState {
@@ -354,31 +354,33 @@ export class GameSimulation {
     }
 
     // 4. Check Mystery Box
-    const mbDx = this.mysteryBox.x - player.x;
-    const mbDy = this.mysteryBox.y - player.y;
-    if (mbDx * mbDx + mbDy * mbDy <= 80 * 80) {
-      if (!this.mysteryBox.isSpinning && !this.mysteryBox.spinWeaponId) {
-        if (player.points >= this.mysteryBox.cost) {
-          player.points -= this.mysteryBox.cost;
-          this.mysteryBox.isSpinning = true;
-          this.mysteryBox.spinTimer = 3500;
-          this.onSoundEvent?.('mystery_box');
-          this.onGameEvent?.('box', `${player.name} losuje skrzynię Mystery Box!`, '#a855f7');
+    if (this.mysteryBox) {
+      const mbDx = this.mysteryBox.x - player.x;
+      const mbDy = this.mysteryBox.y - player.y;
+      if (mbDx * mbDx + mbDy * mbDy <= 80 * 80) {
+        if (!this.mysteryBox.isSpinning && !this.mysteryBox.spinWeaponId) {
+          if (player.points >= this.mysteryBox.cost) {
+            player.points -= this.mysteryBox.cost;
+            this.mysteryBox.isSpinning = true;
+            this.mysteryBox.spinTimer = 3500;
+            this.onSoundEvent?.('mystery_box');
+            this.onGameEvent?.('box', `${player.name} losuje skrzynię Mystery Box!`, '#a855f7');
+            return;
+          }
+        } else if (this.mysteryBox.spinWeaponId) {
+          // Collect weapon
+          const newWep = this.mysteryBox.spinWeaponId;
+          const weaponDef = WEAPONS[newWep];
+          player.weaponId = newWep;
+          player.ammoClip = weaponDef.clipSize;
+          player.ammoReserve = weaponDef.maxReserve;
+          player.isReloading = false;
+          this.mysteryBox.spinWeaponId = null;
+          this.mysteryBox.isSpinning = false;
+          this.onSoundEvent?.('buy');
+          this.onGameEvent?.('box', `${player.name} wylosował ${weaponDef.name}!`, '#a855f7');
           return;
         }
-      } else if (this.mysteryBox.spinWeaponId) {
-        // Collect weapon
-        const newWep = this.mysteryBox.spinWeaponId;
-        const weaponDef = WEAPONS[newWep];
-        player.weaponId = newWep;
-        player.ammoClip = weaponDef.clipSize;
-        player.ammoReserve = weaponDef.maxReserve;
-        player.isReloading = false;
-        this.mysteryBox.spinWeaponId = null;
-        this.mysteryBox.isSpinning = false;
-        this.onSoundEvent?.('buy');
-        this.onGameEvent?.('box', `${player.name} wylosował ${weaponDef.name}!`, '#a855f7');
-        return;
       }
     }
   }
@@ -422,20 +424,22 @@ export class GameSimulation {
     }
 
     // 2. Update Mystery Box spin
-    if (this.mysteryBox.isSpinning) {
-      this.mysteryBox.spinTimer -= dtMs;
-      if (this.mysteryBox.spinTimer <= 0) {
-        this.mysteryBox.isSpinning = false;
-        // Roll weapon (Raygun has 20% chance, others 80%)
-        const weaponsList: WeaponType[] = ['shotgun', 'thompson', 'm16', 'raygun'];
-        const rolled = Math.random() < 0.25 ? 'raygun' : weaponsList[Math.floor(Math.random() * (weaponsList.length - 1))];
-        this.mysteryBox.spinWeaponId = rolled;
-        this.mysteryBox.spinTimer = 8000; // 8 seconds to pick up
-      }
-    } else if (this.mysteryBox.spinWeaponId) {
-      this.mysteryBox.spinTimer -= dtMs;
-      if (this.mysteryBox.spinTimer <= 0) {
-        this.mysteryBox.spinWeaponId = null;
+    if (this.mysteryBox) {
+      if (this.mysteryBox.isSpinning) {
+        this.mysteryBox.spinTimer -= dtMs;
+        if (this.mysteryBox.spinTimer <= 0) {
+          this.mysteryBox.isSpinning = false;
+          // Roll weapon (Raygun has 20% chance, others 80%)
+          const weaponsList: WeaponType[] = ['shotgun', 'thompson', 'm16', 'raygun'];
+          const rolled = Math.random() < 0.25 ? 'raygun' : weaponsList[Math.floor(Math.random() * (weaponsList.length - 1))];
+          this.mysteryBox.spinWeaponId = rolled;
+          this.mysteryBox.spinTimer = 8000; // 8 seconds to pick up
+        }
+      } else if (this.mysteryBox.spinWeaponId) {
+        this.mysteryBox.spinTimer -= dtMs;
+        if (this.mysteryBox.spinTimer <= 0) {
+          this.mysteryBox.spinWeaponId = null;
+        }
       }
     }
 

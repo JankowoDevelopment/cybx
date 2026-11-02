@@ -193,7 +193,7 @@ export type ClientPacket =
 export type ServerPacket =
   | { type: 'room_joined'; roomCode: string; playerId: string; isHost: boolean }
   | { type: 'lobby_update'; players: { id: string; name: string; isHost: boolean }[]; canStart: boolean }
-  | { type: 'game_init'; map: any; wallBuys: WallBuyState[]; doors: DoorState[]; mysteryBox: MysteryBoxState }
+  | { type: 'game_init'; map: any; wallBuys: WallBuyState[]; doors: DoorState[]; mysteryBox?: MysteryBoxState }
   | { type: 'snapshot'; state: GameSnapshot }
   | { type: 'sound_event'; sound: 'shoot' | 'reload' | 'zombie_groan' | 'zombie_death' | 'hit' | 'round_start' | 'round_end' | 'buy' | 'nuke' | 'mystery_box' | 'downed' | 'revived' | 'dash' | 'explosion'; weapon?: WeaponType; shooterId?: string }
   | { type: 'game_event'; event: string; text?: string; color?: string }
