@@ -73,7 +73,7 @@ export class GameSimulation {
   public addPlayer(id: string, name: string): PlayerState {
     const spawnIndex = this.players.size % this.map.playerSpawns.length;
     const spawn = this.map.playerSpawns[spawnIndex];
-    const colors = ['#38bdf8', '#fb923c', '#a855f7', '#4ade80'];
+    const colors = ['#ef4444', '#38bdf8', '#fbbf24', '#22c55e'];
     const color = colors[this.players.size % colors.length];
 
     const player: PlayerState = {
@@ -86,17 +86,20 @@ export class GameSimulation {
       maxHp: SERVER_CONFIG.BASE_PLAYER_HP,
       points: 500, // starting points
       downed: false,
+      isDead: false,
+      respawnTimer: 0,
       reviveProgress: 0,
       revivingTargetId: null,
-      weaponId: 'm1911',
-      ammoClip: WEAPONS.m1911.clipSize,
-      ammoReserve: 40,
+      weaponId: 'm16',
+      ammoClip: WEAPONS.m16.clipSize,
+      ammoReserve: 300,
       isReloading: false,
       reloadProgress: 0,
       isDashing: false,
       dashCooldownRemaining: 0,
-      grenadesRemaining: 2,
+      grenadesRemaining: 0, // Disabled as requested
       kills: 0,
+      deaths: 0,
       headshots: 0,
       items: [],
       color
@@ -181,34 +184,9 @@ export class GameSimulation {
     this.onSoundEvent?.('dash');
   }
 
-  public triggerGrenade(playerId: string, targetX: number, targetY: number): void {
-    const player = this.players.get(playerId);
-    if (!player || player.downed || player.grenadesRemaining <= 0) return;
-
-    player.grenadesRemaining--;
-    const dx = targetX - player.x;
-    const dy = targetY - player.y;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    const speed = Math.min(dist * 2.2, 500);
-
-    let radius = SERVER_CONFIG.GRENADE_BASE_RADIUS;
-    for (const itemId of player.items) {
-      const item = DEADLOCK_ITEMS.find((i) => i.id === itemId);
-      if (item?.stats.grenadeDamageBonus) {
-        radius += 40;
-      }
-    }
-
-    this.grenades.push({
-      id: `grenade_${this.nextId++}`,
-      x: player.x,
-      y: player.y,
-      vx: (dx / dist) * speed,
-      vy: (dy / dist) * speed,
-      timer: SERVER_CONFIG.GRENADE_FUSE_MS,
-      radius,
-      shooterId: player.id
-    });
+  public triggerGrenade(_playerId: string, _targetX: number, _targetY: number): void {
+    // Disabled as requested ("narazie nie dzialaja granaty")
+    return;
   }
 
   public triggerReload(playerId: string): void {
@@ -377,10 +355,27 @@ export class GameSimulation {
     }
 
     // 3. Update Players
-    let livingPlayersCount = 0;
     const now = Date.now();
 
     for (const [_, player] of this.players) {
+      // Dead player respawn timer
+      if (player.isDead) {
+        player.respawnTimer -= dtMs;
+        if (player.respawnTimer <= 0) {
+          player.isDead = false;
+          player.hp = player.maxHp;
+          const wep = WEAPONS[player.weaponId];
+          player.ammoClip = wep.clipSize;
+          player.ammoReserve = wep.maxReserve;
+
+          const spawn = this.map.playerSpawns[Math.floor(Math.random() * this.map.playerSpawns.length)];
+          player.x = spawn.x;
+          player.y = spawn.y;
+          this.onGameEvent?.('respawn', `⚡ ${player.name} powrócił na arenę!`, '#38bdf8');
+        }
+        continue;
+      }
+
       const input = this.playerInputs.get(player.id);
 
       // Dash Cooldown
@@ -388,140 +383,91 @@ export class GameSimulation {
         player.dashCooldownRemaining = Math.max(0, player.dashCooldownRemaining - dtMs);
       }
 
-      // Check Revive target
-      if (player.revivingTargetId) {
-        const downedPlayer = this.players.get(player.revivingTargetId);
-        if (downedPlayer && downedPlayer.downed) {
-          downedPlayer.reviveProgress += (dtMs / SERVER_CONFIG.PLAYER_REVIVE_TIME_MS) * 100;
-          if (downedPlayer.reviveProgress >= 100) {
-            downedPlayer.downed = false;
-            downedPlayer.hp = downedPlayer.maxHp * 0.5;
-            downedPlayer.reviveProgress = 0;
-            this.onGameEvent?.('revived', `${player.name} podniósł ${downedPlayer.name}!`, '#4ade80');
-            this.onSoundEvent?.('revived');
-            player.revivingTargetId = null;
-          }
-        } else {
-          player.revivingTargetId = null;
-        }
+      // Passive HP Regen (from Deadlock items)
+      let regenPerSec = 0;
+      for (const itemId of player.items) {
+        const item = DEADLOCK_ITEMS.find((i) => i.id === itemId);
+        if (item?.stats.hpRegen) regenPerSec += item.stats.hpRegen;
+      }
+      if (regenPerSec > 0 && player.hp < player.maxHp) {
+        player.hp = Math.min(player.maxHp, player.hp + regenPerSec * dtSec);
       }
 
-      if (!player.downed) {
-        livingPlayersCount++;
-
-        // Passive HP Regen (from Deadlock items)
-        let regenPerSec = 0;
-        for (const itemId of player.items) {
-          const item = DEADLOCK_ITEMS.find((i) => i.id === itemId);
-          if (item?.stats.hpRegen) regenPerSec += item.stats.hpRegen;
+      // Movement Speed
+      let speed = SERVER_CONFIG.PLAYER_BASE_SPEED;
+      for (const itemId of player.items) {
+        const item = DEADLOCK_ITEMS.find((i) => i.id === itemId);
+        if (item?.stats.moveSpeedPct) {
+          speed *= 1 + item.stats.moveSpeedPct / 100;
         }
-        if (regenPerSec > 0 && player.hp < player.maxHp) {
-          player.hp = Math.min(player.maxHp, player.hp + regenPerSec * dtSec);
-        }
+      }
+      if (player.isDashing) {
+        speed = SERVER_CONFIG.PLAYER_DASH_SPEED;
+      }
 
-        // Movement Speed
-        let speed = SERVER_CONFIG.PLAYER_BASE_SPEED;
-        for (const itemId of player.items) {
-          const item = DEADLOCK_ITEMS.find((i) => i.id === itemId);
-          if (item?.stats.moveSpeedPct) {
-            speed *= 1 + item.stats.moveSpeedPct / 100;
-          }
-        }
-        if (player.isDashing) {
-          speed = SERVER_CONFIG.PLAYER_DASH_SPEED;
-        }
+      if (input) {
+        let moveX = 0;
+        let moveY = 0;
 
-        if (input) {
-          let moveX = 0;
-          let moveY = 0;
-
-          if (input.moveX !== undefined && input.moveY !== undefined) {
-            moveX = input.moveX;
-            moveY = input.moveY;
-          } else {
-            if (input.up) moveY -= 1;
-            if (input.down) moveY += 1;
-            if (input.left) moveX -= 1;
-            if (input.right) moveX += 1;
-
-            if (moveX !== 0 && moveY !== 0) {
-              moveX *= 0.7071;
-              moveY *= 0.7071;
-            }
-          }
-
-          const deltaX = moveX * speed * dtSec;
-          const deltaY = moveY * speed * dtSec;
-
-          // Axis-separated collision with sliding (fully enables W + A diagonal navigation)
-          const resolved = resolveMovement(
-            player.x,
-            player.y,
-            deltaX,
-            deltaY,
-            SERVER_CONFIG.PLAYER_RADIUS,
-            walls
-          );
-          player.x = resolved.x;
-          player.y = resolved.y;
-
-          // Aim angle (supports both 3D yaw and 2D mouse position)
-          if (input.yaw !== undefined) {
-            player.angle = input.yaw;
-          } else {
-            player.angle = Math.atan2(input.mouseY - player.y, input.mouseX - player.x);
-          }
-
-          // Shooting
-          if (input.shoot && !player.isReloading) {
-            this.handlePlayerShoot(player, now);
-          }
-        }
-
-        // Reload progress
-        if (player.isReloading) {
-          const wep = WEAPONS[player.weaponId];
-          player.reloadProgress += dtMs / wep.reloadTime;
-          if (player.reloadProgress >= 1) {
-            const needed = wep.clipSize - player.ammoClip;
-            const take = Math.min(needed, player.ammoReserve);
-            player.ammoClip += take;
-            player.ammoReserve -= take;
-            player.isReloading = false;
-            player.reloadProgress = 0;
-          }
-        }
-      } else {
-        // Downed player slow crawl
-        if (input) {
-          let moveX = 0;
-          let moveY = 0;
+        if (input.moveX !== undefined && input.moveY !== undefined) {
+          moveX = input.moveX;
+          moveY = input.moveY;
+        } else {
           if (input.up) moveY -= 1;
           if (input.down) moveY += 1;
           if (input.left) moveX -= 1;
           if (input.right) moveX += 1;
-          player.x += moveX * 40 * dtSec;
-          player.y += moveY * 40 * dtSec;
-          const resolved = resolveWallCollisions(
-            player.x,
-            player.y,
-            SERVER_CONFIG.PLAYER_RADIUS,
-            walls
-          );
-          player.x = resolved.x;
-          player.y = resolved.y;
+
+          if (moveX !== 0 && moveY !== 0) {
+            moveX *= 0.7071;
+            moveY *= 0.7071;
+          }
+        }
+
+        const deltaX = moveX * speed * dtSec;
+        const deltaY = moveY * speed * dtSec;
+
+        // Axis-separated collision with sliding against arena walls & pillars
+        const resolved = resolveMovement(
+          player.x,
+          player.y,
+          deltaX,
+          deltaY,
+          SERVER_CONFIG.PLAYER_RADIUS,
+          walls
+        );
+        player.x = resolved.x;
+        player.y = resolved.y;
+
+        // Aim angle
+        if (input.yaw !== undefined) {
+          player.angle = input.yaw;
+        } else {
           player.angle = Math.atan2(input.mouseY - player.y, input.mouseX - player.x);
+        }
+
+        // Shooting
+        if (input.shoot && !player.isReloading) {
+          this.handlePlayerShoot(player, now);
+        }
+      }
+
+      // Reload progress
+      if (player.isReloading) {
+        const wep = WEAPONS[player.weaponId];
+        player.reloadProgress += dtMs / wep.reloadTime;
+        if (player.reloadProgress >= 1) {
+          const needed = wep.clipSize - player.ammoClip;
+          const take = Math.min(needed, player.ammoReserve);
+          player.ammoClip += take;
+          player.ammoReserve -= take;
+          player.isReloading = false;
+          player.reloadProgress = 0;
         }
       }
     }
 
-    // Check Game Over (all players downed)
-    if (this.players.size > 0 && livingPlayersCount === 0 && this.roundState === 'active') {
-      this.roundState = 'gameover';
-      this.onGameEvent?.('game_over', `KONIEC GRY! Przetrwaliście do Rundy ${this.round}.`, '#ef4444');
-    }
-
-    // 4. Update Bullets with Continuous Collision Detection
+    // 4. Update Bullets with Continuous Collision Detection against Walls & Enemy Players
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const b = this.bullets[i];
       const prevX = b.x;
@@ -546,61 +492,54 @@ export class GameSimulation {
       b.x = nextX;
       b.y = nextY;
 
-      // Check zombie hits along the segment (continuous collision, prevents tunneling!)
-      for (let zIdx = this.zombies.length - 1; zIdx >= 0; zIdx--) {
-        const z = this.zombies[zIdx];
+      // Continuous collision check against enemy players (1v1v1v1 PvP)
+      for (const [targetId, target] of this.players) {
+        if (targetId === b.shooterId) continue;
+        if (target.isDead) continue;
+
         const hitResult = lineSegmentCircleIntersection(
           prevX,
           prevY,
           nextX,
           nextY,
-          z.x,
-          z.y,
-          SERVER_CONFIG.ZOMBIE_RADIUS + 4
+          target.x,
+          target.y,
+          SERVER_CONFIG.PLAYER_RADIUS + 4
         );
 
         if (hitResult.hit) {
-          // HIT!
           const shooter = this.players.get(b.shooterId);
-          let damage = b.damage;
-          if (this.activePowerUps.instaKill > 0) {
-            damage = 99999;
-          }
+          const damage = b.damage;
 
-          z.hp -= damage;
-          z.isHit = true;
-          const isKill = z.hp <= 0;
+          target.hp -= damage;
+          const isKill = target.hp <= 0;
 
-          // Dispatch hit event for visual numbers & blood particles
+          // Dispatch hit event for visual numbers & hitmarkers
           this.onHitEvent?.(hitResult.hitX, hitResult.hitY, Math.round(damage), isKill, false, b.shooterId);
           this.onSoundEvent?.('hit');
 
-          // Lifesteal from Deadlock items
           if (shooter) {
             let lifesteal = 0;
             for (const itemId of shooter.items) {
               const item = DEADLOCK_ITEMS.find((it) => it.id === itemId);
               if (item?.stats.lifestealPct) lifesteal += item.stats.lifestealPct;
             }
-            if (lifesteal > 0 && !shooter.downed) {
+            if (lifesteal > 0 && !shooter.isDead) {
               shooter.hp = Math.min(shooter.maxHp, shooter.hp + (damage * lifesteal) / 100);
             }
+          }
 
-            // Tesla bullet chain lightning
-            if (b.isTesla) {
-              this.triggerTeslaArc(z, damage * 0.6);
-            }
+          if (isKill) {
+            target.hp = 0;
+            target.isDead = true;
+            target.respawnTimer = 3000;
+            target.deaths++;
 
-            // Add hit points
-            const pointMultiplier = this.activePowerUps.doublePoints > 0 ? 2 : 1;
-            shooter.points += 10 * pointMultiplier;
-
-            if (isKill) {
-              shooter.points += 50 * pointMultiplier; // kill bonus
+            if (shooter) {
               shooter.kills++;
+              shooter.points += 100;
               this.onSoundEvent?.('zombie_death');
-              this.onZombieKilled(z);
-              this.zombies.splice(zIdx, 1);
+              this.onGameEvent?.('kill', `💥 ${shooter.name} zabił ${target.name}!`, '#ef4444');
             }
           }
 
@@ -613,109 +552,13 @@ export class GameSimulation {
       }
     }
 
-    // 5. Update Grenades
-    for (let i = this.grenades.length - 1; i >= 0; i--) {
-      const g = this.grenades[i];
-      g.x += g.vx * dtSec;
-      g.y += g.vy * dtSec;
-      g.vx *= 0.95; // friction
-      g.vy *= 0.95;
+    // 5. Grenades disabled as requested
+    this.grenades = [];
 
-      g.timer -= dtMs;
-      if (g.timer <= 0) {
-        // EXPLODE!
-        this.onSoundEvent?.('explosion');
-        const shooter = this.players.get(g.shooterId);
-        let dmg = SERVER_CONFIG.GRENADE_BASE_DAMAGE;
-        if (shooter) {
-          for (const itId of shooter.items) {
-            const item = DEADLOCK_ITEMS.find((it) => it.id === itId);
-            if (item?.stats.grenadeDamageBonus) dmg += item.stats.grenadeDamageBonus;
-          }
-        }
+    // 6. Zombies disabled for 1v1v1v1 Arena Deathmatch
+    this.zombies = [];
 
-        // Damage zombies in radius
-        for (let zIdx = this.zombies.length - 1; zIdx >= 0; zIdx--) {
-          const z = this.zombies[zIdx];
-          const distSq = (z.x - g.x) ** 2 + (z.y - g.y) ** 2;
-          if (distSq <= g.radius ** 2) {
-            z.hp -= dmg;
-            if (z.hp <= 0) {
-              if (shooter) {
-                const multi = this.activePowerUps.doublePoints > 0 ? 2 : 1;
-                shooter.points += 60 * multi;
-                shooter.kills++;
-              }
-              this.onZombieKilled(z);
-              this.zombies.splice(zIdx, 1);
-            }
-          }
-        }
-
-        this.grenades.splice(i, 1);
-      }
-    }
-
-    // 6. Update Zombies
-    const playersArr = Array.from(this.players.values());
-    for (const z of this.zombies) {
-      updateZombie(z, playersArr, walls, dtSec);
-
-      // Zombie attack player
-      if (z.targetPlayerId) {
-        const target = this.players.get(z.targetPlayerId);
-        if (target && !target.downed) {
-          const distSq = (target.x - z.x) ** 2 + (target.y - z.y) ** 2;
-          if (distSq <= (SERVER_CONFIG.PLAYER_RADIUS + SERVER_CONFIG.ZOMBIE_RADIUS + 4) ** 2) {
-            const lastAtk = this.zombieLastAttack.get(z.id) || 0;
-            if (now - lastAtk >= SERVER_CONFIG.ZOMBIE_ATTACK_COOLDOWN) {
-              this.zombieLastAttack.set(z.id, now);
-              target.hp -= SERVER_CONFIG.ZOMBIE_ATTACK_DAMAGE;
-              this.onSoundEvent?.('zombie_groan');
-
-              if (target.hp <= 0) {
-                target.hp = 0;
-                target.downed = true;
-                target.reviveProgress = 0;
-                this.onGameEvent?.('downed', `UWAGA: ${target.name} został powalony!`, '#ef4444');
-                this.onSoundEvent?.('downed');
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // 7. Update Spawner & Rounds
-    if (this.roundState === 'active') {
-      if (this.zombiesSpawnedThisRound < this.zombiesToSpawnThisRound) {
-        this.zombieSpawnCooldown -= dtMs;
-        if (this.zombieSpawnCooldown <= 0) {
-          this.spawnZombie();
-          this.zombieSpawnCooldown = Math.max(350, 1500 - this.round * 60);
-        }
-      } else if (this.zombies.length === 0) {
-        // Round Finished!
-        this.roundState = 'intermission';
-        this.roundTimer = SERVER_CONFIG.ROUND_INTERMISSION_TIME_MS;
-        this.onGameEvent?.('round_end', `RUNDA ${this.round} UKOŃCZONA!`, '#f59e0b');
-        this.onSoundEvent?.('round_end');
-
-        // Refill 1 grenade each round
-        for (const [_, p] of this.players) {
-          p.grenadesRemaining = Math.min(3, p.grenadesRemaining + 1);
-        }
-      }
-    } else if (this.roundState === 'intermission') {
-      this.roundTimer -= dtMs;
-      if (this.roundTimer <= 0) {
-        this.startRound(this.round + 1);
-        this.onGameEvent?.('round_start', `RUNDA ${this.round} ROZPOCZĘTA!`, '#ef4444');
-        this.onSoundEvent?.('round_start');
-      }
-    }
-
-    // 8. Update Power-ups
+    // 7. Update Power-ups
     for (let i = this.powerUps.length - 1; i >= 0; i--) {
       const pu = this.powerUps[i];
       pu.durationTimer -= dtMs;
@@ -726,7 +569,7 @@ export class GameSimulation {
 
       // Check player pickup
       for (const [_, p] of this.players) {
-        if (!p.downed) {
+        if (!p.isDead) {
           const distSq = (p.x - pu.x) ** 2 + (p.y - pu.y) ** 2;
           if (distSq <= 30 * 30) {
             this.activatePowerUp(pu.type, p);

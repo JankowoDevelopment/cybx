@@ -29,8 +29,8 @@ export class Doom3DRenderer {
   private isPointerLocked: boolean = false;
 
   // Client-Side Prediction & Motion Smoothing
-  private predictedX: number = 700;
-  private predictedZ: number = 1000;
+  private predictedX: number = 300;
+  private predictedZ: number = 900;
   private hasInitializedPos: boolean = false;
   private headBobTimer: number = 0;
 
@@ -43,6 +43,7 @@ export class Doom3DRenderer {
   private doorMeshes: Map<string, THREE.Mesh> = new Map();
   private zombieSprites: Map<string, THREE.Sprite> = new Map();
   private playerSprites: Map<string, THREE.Sprite> = new Map();
+  private playerHpBars: Map<string, { sprite: THREE.Sprite; canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture }> = new Map();
   private powerupSprites: Map<string, THREE.Sprite> = new Map();
   private mysteryBoxMesh: THREE.Mesh | null = null;
   private mysteryBoxBeam: THREE.Mesh | null = null;
@@ -65,7 +66,7 @@ export class Doom3DRenderer {
     this.scene.fog = new THREE.FogExp2(0x05070a, 0.0012);
 
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 4000);
-    this.camera.position.set(700, 32, 1000);
+    this.camera.position.set(300, 34, 900);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -256,17 +257,7 @@ export class Doom3DRenderer {
       } else if (e.code === 'Space') {
         networkManager.send({ type: 'dash' });
       } else if (e.code === 'KeyG') {
-        // Grenade thrown forward along camera view
-        const forwardDir = new THREE.Vector3();
-        this.camera.getWorldDirection(forwardDir);
-        forwardDir.y = 0;
-        forwardDir.normalize();
-
-        networkManager.send({
-          type: 'grenade',
-          targetX: this.camera.position.x + forwardDir.x * 450,
-          targetY: this.camera.position.z + forwardDir.z * 450
-        });
+        // Granaty narazie wyłączone ("narazie nie dzialaja granaty")
       }
     });
 
@@ -455,7 +446,7 @@ export class Doom3DRenderer {
       }
 
       // Client-Side Prediction: Advance locally every single frame (60/144 FPS)
-      if (!localPlayer.downed) {
+      if (!localPlayer.downed && !localPlayer.isDead) {
         const deltaX = moveX * speed * dtSec;
         const deltaY = moveY * speed * dtSec;
         const walls = this.getEffectiveWalls();
@@ -490,10 +481,10 @@ export class Doom3DRenderer {
         this.predictedZ = localPlayer.y;
       }
 
-      // Head bobbing for realistic Doom feeling
-      const eyeHeight = localPlayer.downed ? 12 : 34;
+      // Head bobbing for realistic Doom feeling (drops to 10 on death)
+      const eyeHeight = (localPlayer.downed || localPlayer.isDead) ? 10 : 34;
       let bobY = 0;
-      if (isMoving && !localPlayer.downed) {
+      if (isMoving && !localPlayer.downed && !localPlayer.isDead) {
         this.headBobTimer += dtSec * 10;
         bobY = Math.sin(this.headBobTimer) * 1.5;
       } else {
@@ -520,7 +511,7 @@ export class Doom3DRenderer {
         yaw: serverYaw,
         mouseX: this.predictedX + Math.cos(serverYaw) * 100,
         mouseY: this.predictedZ + Math.sin(serverYaw) * 100,
-        shoot: this.isMouseDown && this.isPointerLocked && !this.shopModal.isOpen
+        shoot: this.isMouseDown && this.isPointerLocked && !this.shopModal.isOpen && !localPlayer.isDead
       });
 
       // Update First-Person Weapon Bob & Recoil
@@ -530,10 +521,10 @@ export class Doom3DRenderer {
       this.updatePrompts(this.predictedX, this.predictedZ, localPlayer);
     }
 
-    // 2. Render 3D Zombie Billboards & Entities with smooth interpolation
+    // 2. Render 3D Opponent Billboards & Entities with smooth interpolation
     if (snapshot) {
       this.updateZombies(snapshot.zombies, dtSec);
-      this.updateTeammates(snapshot.players, dtSec);
+      this.updateOpponents(snapshot.players, dtSec);
       this.updatePowerups(snapshot.powerUps);
       this.update3DTracers(snapshot);
     }
@@ -615,13 +606,23 @@ export class Doom3DRenderer {
     }
   }
 
-  private updateTeammates(players: PlayerState[], dtSec: number): void {
+  private updateOpponents(players: PlayerState[], dtSec: number): void {
     const activeIds = new Set(players.filter((p) => p.id !== networkManager.playerId).map((p) => p.id));
 
+    // Remove disconnected players and their HP bars
     for (const [id, sprite] of this.playerSprites) {
       if (!activeIds.has(id)) {
         this.scene.remove(sprite);
+        sprite.material.dispose();
         this.playerSprites.delete(id);
+
+        const hpBar = this.playerHpBars.get(id);
+        if (hpBar) {
+          this.scene.remove(hpBar.sprite);
+          hpBar.tex.dispose();
+          hpBar.sprite.material.dispose();
+          this.playerHpBars.delete(id);
+        }
       }
     }
 
@@ -629,17 +630,41 @@ export class Doom3DRenderer {
       if (p.id === networkManager.playerId) continue;
 
       let sprite = this.playerSprites.get(p.id);
-      const targetY = p.downed ? 10 : 22;
+      let hpBar = this.playerHpBars.get(p.id);
 
       if (!sprite) {
-        const tex = this.textures.zombies.walker[0]; // teammate billboard
-        const mat = new THREE.SpriteMaterial({ map: tex, color: 0x38bdf8 });
+        const tex = this.textures.zombies.walker[0];
+        const col = new THREE.Color(p.color || '#ef4444');
+        const mat = new THREE.SpriteMaterial({ map: tex, color: col });
         sprite = new THREE.Sprite(mat);
-        sprite.scale.set(32, 44, 1);
-        sprite.position.set(p.x, targetY, p.y);
+        sprite.scale.set(34, 46, 1);
+        sprite.position.set(p.x, 23, p.y);
         this.scene.add(sprite);
         this.playerSprites.set(p.id, sprite);
+
+        // Overhead HP Bar billboard canvas
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d')!;
+        const hpTex = new THREE.CanvasTexture(canvas);
+        const hpMat = new THREE.SpriteMaterial({ map: hpTex, transparent: true, depthTest: false });
+        const hpSprite = new THREE.Sprite(hpMat);
+        hpSprite.scale.set(36, 9, 1);
+        hpSprite.position.set(p.x, 50, p.y);
+        this.scene.add(hpSprite);
+        hpBar = { sprite: hpSprite, canvas, ctx, tex: hpTex };
+        this.playerHpBars.set(p.id, hpBar);
+      }
+
+      // Smooth position interpolation
+      if (p.isDead) {
+        sprite.visible = false;
+        if (hpBar) hpBar.sprite.visible = true;
       } else {
+        sprite.visible = true;
+        if (hpBar) hpBar.sprite.visible = true;
+
         const dx = p.x - sprite.position.x;
         const dz = p.y - sprite.position.z;
         if (dx * dx + dz * dz > 120 * 120) {
@@ -650,7 +675,60 @@ export class Doom3DRenderer {
           sprite.position.x += dx * lerpRate;
           sprite.position.z += dz * lerpRate;
         }
-        sprite.position.y = targetY;
+        sprite.position.y = 23;
+      }
+
+      // Position overhead HP Bar right above opponent head
+      if (hpBar) {
+        hpBar.sprite.position.set(sprite.position.x, 50, sprite.position.z);
+
+        const ctx = hpBar.ctx;
+        ctx.clearRect(0, 0, 256, 64);
+
+        if (p.isDead) {
+          // Dead status banner
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+          ctx.fillRect(16, 10, 224, 44);
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(16, 10, 224, 44);
+
+          ctx.font = 'bold 20px monospace';
+          ctx.fillStyle = '#ef4444';
+          ctx.textAlign = 'center';
+          const sec = Math.max(0, p.respawnTimer / 1000).toFixed(1);
+          ctx.fillText(`💀 RESPAWN ZA ${sec}s`, 128, 38);
+        } else {
+          // Player Name Box & Overhead Health Bar
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+          ctx.fillRect(16, 6, 224, 52);
+          ctx.strokeStyle = p.color || '#ef4444';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(16, 6, 224, 52);
+
+          // Name
+          ctx.font = 'bold 18px monospace';
+          ctx.fillStyle = '#f8fafc';
+          ctx.textAlign = 'center';
+          ctx.fillText(p.name, 128, 25);
+
+          // Bar Background
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(24, 33, 208, 18);
+
+          // Bar Fill
+          const hpPct = Math.max(0, Math.min(1, p.hp / p.maxHp));
+          const barCol = hpPct > 0.5 ? '#22c55e' : hpPct > 0.25 ? '#f59e0b' : '#ef4444';
+          ctx.fillStyle = barCol;
+          ctx.fillRect(24, 33, Math.round(hpPct * 208), 18);
+
+          // HP Numbers text
+          ctx.font = 'bold 13px monospace';
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(`${Math.ceil(p.hp)} / ${p.maxHp} HP`, 128, 47);
+        }
+
+        hpBar.tex.needsUpdate = true;
       }
     }
   }
@@ -757,6 +835,11 @@ export class Doom3DRenderer {
 
   public destroy(): void {
     this.isRunning = false;
+    for (const [_, hpBar] of this.playerHpBars) {
+      hpBar.tex.dispose();
+      hpBar.sprite.material.dispose();
+    }
+    this.playerHpBars.clear();
     this.weaponRenderer.destroy();
     this.hud.destroy();
     this.renderer.dispose();

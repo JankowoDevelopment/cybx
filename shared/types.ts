@@ -52,6 +52,8 @@ export interface PlayerState {
   maxHp: number;
   points: number;
   downed: boolean;
+  isDead: boolean;
+  respawnTimer: number; // ms left to respawn
   reviveProgress: number; // 0 to 100
   revivingTargetId: string | null;
   weaponId: WeaponType;
@@ -63,6 +65,7 @@ export interface PlayerState {
   dashCooldownRemaining: number;
   grenadesRemaining: number;
   kills: number;
+  deaths: number;
   headshots: number;
   items: string[]; // item IDs
   color: string;

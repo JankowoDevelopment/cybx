@@ -52,11 +52,11 @@ export class DoomLobby {
 
     this.lobbyDiv.innerHTML = `
       <div style="background: rgba(15, 12, 12, 0.96); border: 3px solid #dc2626; border-radius: 14px; padding: 36px 44px; width: 560px; max-width: 90vw; box-shadow: 0 0 50px rgba(220, 38, 38, 0.5); text-align: center;">
-        <h1 style="font-size: 42px; font-weight: 900; letter-spacing: 4px; color: #ef4444; margin-bottom: 4px; text-shadow: 0 0 25px #dc2626;">
-          DOOM ZOMBIES 3D
+        <h1 style="font-size: 40px; font-weight: 900; letter-spacing: 4px; color: #ef4444; margin-bottom: 4px; text-shadow: 0 0 25px #dc2626;">
+          ARENA 1v1v1v1 3D
         </h1>
         <p style="font-size: 13px; color: #f59e0b; margin-bottom: 24px; text-transform: uppercase; letter-spacing: 2px;">
-          Retro 90s First-Person Wave Shooter &bull; CoD Zombies &times; Deadlock Shop
+          Multiplayer PvP Arena Shooter &bull; Walka Każdy na Każdego &bull; 60/144 FPS
         </p>
 
         <!-- Pre-Join View -->
@@ -100,19 +100,19 @@ export class DoomLobby {
             <div id="players-list-container" style="display: flex; flex-direction: column; gap: 8px;"></div>
           </div>
 
-          <button id="btn-start-game" style="width: 100%; padding: 18px; background: #16a34a; color: #fff; border: none; border-radius: 8px; font-weight: 900; font-size: 18px; cursor: pointer; letter-spacing: 2px; transition: all 0.2s; box-shadow: 0 4px 20px rgba(22,163,74,0.4);">
-            WEJDŹ DO GRY 3D 💀
+          <button id="btn-start-game" style="width: 100%; padding: 18px; background: #dc2626; color: #fff; border: none; border-radius: 8px; font-weight: 900; font-size: 18px; cursor: pointer; letter-spacing: 2px; transition: all 0.2s; box-shadow: 0 4px 20px rgba(220,38,38,0.5);">
+            WEJDŹ NA ARENĘ ⚔️
           </button>
           <div id="host-wait-msg" style="display: none; font-size: 14px; color: #94a3b8; margin-top: 12px;">Czekam aż host uruchomi mecz...</div>
         </div>
 
         <!-- Controls Guide -->
         <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #2d1515; font-size: 11px; color: #94a3b8; line-height: 1.7; text-align: left; font-family: 'Inter', sans-serif;">
-          🎮 <b>Sterowanie Doom 3D:</b><br>
+          🎮 <b>Sterowanie Arena 3D:</b><br>
           &bull; <b>[Kliknięcie w ekran]</b> Zablokowanie myszki (Pointer Lock)<br>
-          &bull; <b>[WASD]</b> Poruszanie się w 3D (przód, tył, strafe lewo/prawo)<br>
-          &bull; <b>[Myszka]</b> Rozglądanie 3D (Freelook) &bull; <b>[LPM]</b> Strzał<br>
-          &bull; <b>[Spacja]</b> Dash &bull; <b>[R]</b> Przeładowanie &bull; <b>[G]</b> Granat &bull; <b>[E]</b> Interakcja &bull; <b>[B/ESC]</b> Sklep
+          &bull; <b>[WASD]</b> Płynny ruch w 3D wg widoku kamery (przód, tył, strafe lewo/prawo)<br>
+          &bull; <b>[Myszka]</b> Rozglądanie 3D &bull; <b>[LPM]</b> Strzał do przeciwników<br>
+          &bull; <b>[Spacja]</b> Dash &bull; <b>[R]</b> Przeładowanie &bull; <b>[E]</b> Podnoszenie broni ze ścian &bull; <b>[B/ESC]</b> Sklep
         </div>
       </div>
     `;
