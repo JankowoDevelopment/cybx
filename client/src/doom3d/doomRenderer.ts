@@ -1,17 +1,29 @@
 import * as THREE from 'three';
 import { networkManager } from '../network/networkManager.js';
-import { GameSnapshot, PlayerState, ZombieState, DoorState, WallBuyState, MysteryBoxState } from '@shared/types.js';
+import { GameSnapshot, PlayerState, ZombieState } from '@shared/types.js';
 import { SERVER_CONFIG } from '@shared/constants.js';
 import { DEADLOCK_ITEMS } from '@shared/items.js';
+import { ROUNDS_CARDS } from '@shared/cards.js';
 import { resolveMovement } from '@shared/collision.js';
 import { WEAPONS } from '@shared/weapons.js';
 import { createDefaultMap, MapData, WallRect } from '@shared/map.js';
 import { createDoomTextures, DoomTextureSet } from './doomTextures.js';
-import { DoomWeaponRenderer } from './doomWeapon.js';
+import { DoomWeaponRenderer, create3DWeaponMesh } from './doomWeapon.js';
 import { DoomHud } from './doomHud.js';
 import { ShopModal } from '../ui/shopModal.js';
 import { CardDraftModal } from '../ui/cardDraftModal.js';
 import { soundSystem } from '../audio/soundSystem.js';
+
+interface OpponentModel3D {
+  group: THREE.Group;
+  legL: THREE.Mesh;
+  legR: THREE.Mesh;
+  armR: THREE.Group;
+  torso: THREE.Mesh;
+  walkPhase: number;
+  lastX: number;
+  lastZ: number;
+}
 
 export class Doom3DRenderer {
   private container: HTMLElement;
@@ -43,16 +55,27 @@ export class Doom3DRenderer {
   private isMouseDown: boolean = false;
 
   // 3D Objects Cache
-  private wallMeshes: THREE.Mesh[] = [];
+  private wallMeshes: THREE.Object3D[] = [];
   private doorMeshes: Map<string, THREE.Mesh> = new Map();
+  private wallBuyGroups: THREE.Group[] = [];
   private zombieSprites: Map<string, THREE.Sprite> = new Map();
-  private playerSprites: Map<string, THREE.Sprite> = new Map();
+  private playerModels: Map<string, OpponentModel3D> = new Map();
   private playerHpBars: Map<string, { sprite: THREE.Sprite; canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture }> = new Map();
-  private powerupSprites: Map<string, THREE.Sprite> = new Map();
-  private barrelMeshes: Map<string, THREE.Mesh> = new Map();
-  private activeExplosions: { sprite: THREE.Sprite; light: THREE.PointLight; startTime: number; duration: number; maxRadius: number }[] = [];
+  private powerupSprites: Map<string, THREE.Object3D> = new Map();
+  private barrelMeshes: Map<string, THREE.Group> = new Map();
 
-  // Bullet Tracers
+  // VFX: Explosions, Sparks, Tracers & Damage Texts
+  private activeExplosions: {
+    group: THREE.Group;
+    core: THREE.Mesh;
+    ring: THREE.Mesh;
+    debris: { mesh: THREE.Mesh; vx: number; vy: number; vz: number }[];
+    light: THREE.PointLight;
+    startTime: number;
+    duration: number;
+    maxRadius: number;
+  }[] = [];
+
   private activeTracers: { mesh: THREE.Object3D; dieTime: number }[] = [];
   private damageTexts: { sprite: THREE.Sprite; startY: number; startTime: number; duration: number }[] = [];
   private bulletSpriteTex: THREE.Texture | null = null;
@@ -61,26 +84,31 @@ export class Doom3DRenderer {
   private mapData: MapData;
   private latestSnapshot: GameSnapshot | null = null;
   private isRunning: boolean = true;
+  private lastFrameTime: number = 0;
 
   constructor() {
     this.container = document.getElementById('game-container')!;
     this.container.innerHTML = '';
 
-    // Initialize 3D Scene
+    // Initialize Modern 3D Cyber-Arena Scene
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x05070a, 0.00045);
+    this.scene.background = new THREE.Color(0x040711);
+    this.scene.fog = new THREE.FogExp2(0x040711, 0.00032);
 
-    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 8000);
+    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.5, 9500);
     this.camera.position.set(500, 34, 500);
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+    // High-Quality WebGLRenderer with Antialiasing & Tone Mapping
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
     this.container.appendChild(this.renderer.domElement);
 
     // Initialize Subsystems
     this.textures = createDoomTextures();
-    this.weaponRenderer = new DoomWeaponRenderer();
+    this.weaponRenderer = new DoomWeaponRenderer(this.camera);
     this.hud = new DoomHud();
     this.shopModal = new ShopModal();
     this.cardDraftModal = new CardDraftModal();
@@ -93,7 +121,7 @@ export class Doom3DRenderer {
       this.mapData = createDefaultMap();
     }
 
-    // Build 3D World
+    // Build Modern 3D Cyber-Arena World
     this.buildWorld();
 
     // Setup Controls & Events
@@ -102,86 +130,115 @@ export class Doom3DRenderer {
     // Wire Network Events
     this.setupNetwork();
 
-    // Start 60 FPS Loop
+    // Start Loop
     this.lastFrameTime = performance.now();
     requestAnimationFrame((t) => this.renderLoop(t));
   }
 
   private buildWorld(): void {
-    const wallHeight = 120;
+    const wallHeight = 140;
+    const mapW = this.mapData.width;
+    const mapH = this.mapData.height;
 
-    // 1. Lighting (Doom-style atmospheric point lights + Flashlight)
-    const ambientLight = new THREE.AmbientLight(0x334155, 1.2);
-    this.scene.add(ambientLight);
+    // 1. Modern PBR Lighting Setup
+    const hemiLight = new THREE.HemisphereLight(0x38bdf8, 0x0f172a, 1.1);
+    hemiLight.position.set(mapW / 2, 1200, mapH / 2);
+    this.scene.add(hemiLight);
 
-    // Flashlight on player
-    const playerLight = new THREE.PointLight(0xfffbeb, 1.8, 450);
-    playerLight.position.set(0, 0, 0);
+    const dirLight = new THREE.DirectionalLight(0xe2e8f0, 1.3);
+    dirLight.position.set(mapW * 0.25, 1600, mapH * 0.2);
+    this.scene.add(dirLight);
+
+    // Tactical Flashlight on local player camera
+    const playerLight = new THREE.PointLight(0x38bdf8, 2.2, 550);
+    playerLight.position.set(0, 2, 0);
     this.camera.add(playerLight);
     this.scene.add(this.camera);
 
-    // Room Lights
-    if (this.mapData.rooms) {
-      for (const room of this.mapData.rooms) {
-        let col = 0xf59e0b;
-        if (room.floorType === 'lab_tiles') col = 0x38bdf8;
-        if (room.floorType === 'generator_grid') col = 0xa855f7;
-
-        const light = new THREE.PointLight(col, 1.6, 600);
-        light.position.set(room.x + room.w / 2, wallHeight - 20, room.y + room.h / 2);
-        this.scene.add(light);
-      }
+    // 2. Starfield Night Sky + Holographic Cyber-Dome
+    const starGeo = new THREE.BufferGeometry();
+    const starCount = 1200;
+    const starPos = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI * 0.46;
+      const r = 4200 + Math.random() * 800;
+      starPos[i * 3] = mapW / 2 + r * Math.sin(phi) * Math.cos(theta);
+      starPos[i * 3 + 1] = r * Math.cos(phi) + 100;
+      starPos[i * 3 + 2] = mapH / 2 + r * Math.sin(phi) * Math.sin(theta);
     }
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    const starMat = new THREE.PointsMaterial({ color: 0xe0f2fe, size: 8, transparent: true, opacity: 0.85 });
+    this.scene.add(new THREE.Points(starGeo, starMat));
 
-    // 2. Room Floors & Ceilings
+    // Giant Holographic Geodesic Dome overhead
+    const domeGeo = new THREE.SphereGeometry(3800, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);
+    const domeMat = new THREE.MeshBasicMaterial({
+      color: 0x0284c7,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.12
+    });
+    const domeMesh = new THREE.Mesh(domeGeo, domeMat);
+    domeMesh.position.set(mapW / 2, -60, mapH / 2);
+    this.scene.add(domeMesh);
+
+    // 3. Cyber-Grid Arena Floor
     const floorGeo = new THREE.PlaneGeometry(1, 1);
     floorGeo.rotateX(-Math.PI / 2);
 
-    const ceilingGeo = new THREE.PlaneGeometry(1, 1);
-    ceilingGeo.rotateX(Math.PI / 2);
-
     if (this.mapData.rooms) {
       for (const room of this.mapData.rooms) {
-        let floorTex = this.textures.floorCourtyard;
-        if (room.floorType === 'bunker_wood') floorTex = this.textures.floorBunker;
-        if (room.floorType === 'metal_armory') floorTex = this.textures.floorArmory;
-        if (room.floorType === 'lab_tiles') floorTex = this.textures.floorLab;
-        if (room.floorType === 'generator_grid') floorTex = this.textures.floorGenerator;
+        const floorTex = this.textures.floorCourtyard;
+        floorTex.repeat.set(room.w / 128, room.h / 128);
 
-        const floorMat = new THREE.MeshBasicMaterial({ map: floorTex });
-        floorTex.repeat.set(room.w / 64, room.h / 64);
+        const floorMat = new THREE.MeshStandardMaterial({
+          map: floorTex,
+          roughness: 0.35,
+          metalness: 0.65
+        });
 
         const floorMesh = new THREE.Mesh(floorGeo, floorMat);
         floorMesh.position.set(room.x + room.w / 2, 0, room.y + room.h / 2);
         floorMesh.scale.set(room.w, 1, room.h);
         this.scene.add(floorMesh);
-
-        // Ceiling
-        const ceilingMat = new THREE.MeshBasicMaterial({ map: this.textures.ceiling });
-        this.textures.ceiling.repeat.set(room.w / 64, room.h / 64);
-        const ceilingMesh = new THREE.Mesh(ceilingGeo, ceilingMat);
-        ceilingMesh.position.set(room.x + room.w / 2, wallHeight, room.y + room.h / 2);
-        ceilingMesh.scale.set(room.w, 1, room.h);
-        this.scene.add(ceilingMesh);
       }
     }
 
-    // 3. 3D Walls (Extruded Box Meshes)
-    const brickMat = new THREE.MeshBasicMaterial({ map: this.textures.wallBrick });
-    const perimeterMat = new THREE.MeshBasicMaterial({ map: this.textures.wallPerimeter });
+    // 4. 3D Cyber-Walls & Pillars with Glowing Neon Top/Bottom Trim
+    const brickMat = new THREE.MeshStandardMaterial({
+      map: this.textures.wallBrick,
+      roughness: 0.3,
+      metalness: 0.75
+    });
+    const perimeterMat = new THREE.MeshStandardMaterial({
+      map: this.textures.wallPerimeter,
+      roughness: 0.25,
+      metalness: 0.8
+    });
+    const cyanNeonMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+    const redNeonMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
 
     for (const wall of this.mapData.walls) {
-      const wallGeo = new THREE.BoxGeometry(wall.w, wallHeight, wall.h);
+      const h = wall.isPerimeter ? wallHeight * 1.4 : wallHeight;
+      const wallGeo = new THREE.BoxGeometry(wall.w, h, wall.h);
       const mat = wall.isPerimeter ? perimeterMat : brickMat;
 
       const mesh = new THREE.Mesh(wallGeo, mat);
-      mesh.position.set(wall.x + wall.w / 2, wallHeight / 2, wall.y + wall.h / 2);
+      mesh.position.set(wall.x + wall.w / 2, h / 2, wall.y + wall.h / 2);
       this.scene.add(mesh);
       this.wallMeshes.push(mesh);
+
+      // Glowing Neon Cap Strip on top of every wall/pillar
+      const trimGeo = new THREE.BoxGeometry(wall.w + 2, 4, wall.h + 2);
+      const trimMesh = new THREE.Mesh(trimGeo, wall.isPerimeter ? redNeonMat : cyanNeonMat);
+      trimMesh.position.set(wall.x + wall.w / 2, h + 1, wall.y + wall.h / 2);
+      this.scene.add(trimMesh);
+      this.wallMeshes.push(trimMesh);
     }
 
-    // 4. 3D Doors (Blast Doors)
-    const doorMat = new THREE.MeshBasicMaterial({ map: this.textures.door });
+    // 5. 3D Doors
+    const doorMat = new THREE.MeshStandardMaterial({ map: this.textures.door, roughness: 0.4, metalness: 0.7 });
     for (const door of this.mapData.initialDoors) {
       const doorGeo = new THREE.BoxGeometry(door.width, wallHeight, door.height);
       const mesh = new THREE.Mesh(doorGeo, doorMat);
@@ -189,10 +246,126 @@ export class Doom3DRenderer {
       this.scene.add(mesh);
       this.doorMeshes.set(door.id, mesh);
     }
+
+    // 6. 3D Weapon Wall-Buy Hologram Pedestals
+    for (const wb of this.mapData.wallBuys) {
+      const pedGroup = new THREE.Group();
+      pedGroup.position.set(wb.x, 0, wb.y);
+
+      // Glowing cyber base
+      const baseMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(20, 26, 6, 16),
+        new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.9, roughness: 0.2 })
+      );
+      baseMesh.position.y = 3;
+      pedGroup.add(baseMesh);
+
+      const ringMesh = new THREE.Mesh(
+        new THREE.TorusGeometry(22, 1.5, 8, 24),
+        new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
+      );
+      ringMesh.rotation.x = Math.PI / 2;
+      ringMesh.position.y = 6.5;
+      pedGroup.add(ringMesh);
+
+      // Rotating 3D weapon model above pedestal
+      const wepModel = create3DWeaponMesh(wb.weaponId);
+      wepModel.scale.set(2.2, 2.2, 2.2);
+      wepModel.position.set(0, 28, 0);
+      wepModel.name = 'rotating_weapon';
+      pedGroup.add(wepModel);
+
+      this.scene.add(pedGroup);
+      this.wallBuyGroups.push(pedGroup);
+    }
+  }
+
+  private createCyberOpponentModel(colorHex: string): OpponentModel3D {
+    const group = new THREE.Group();
+    const primaryColor = new THREE.Color(colorHex || '#ef4444');
+
+    const armorMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b,
+      roughness: 0.3,
+      metalness: 0.8
+    });
+    const accentMat = new THREE.MeshStandardMaterial({
+      color: primaryColor,
+      emissive: primaryColor,
+      emissiveIntensity: 0.45,
+      roughness: 0.25,
+      metalness: 0.7
+    });
+    const visorMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+
+    // Torso (Cyber Chestplate + Core)
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(16, 18, 10), armorMat);
+    torso.position.y = 25;
+    group.add(torso);
+
+    const chestCore = new THREE.Mesh(new THREE.BoxGeometry(8, 8, 10.6), accentMat);
+    chestCore.position.y = 26;
+    group.add(chestCore);
+
+    // Head + Glowing Cyber Visor
+    const head = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10), armorMat);
+    head.position.y = 40;
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(9.2, 3.2, 10.4), visorMat);
+    visor.position.set(0, 40.5, 0.3);
+    const crest = new THREE.Mesh(new THREE.BoxGeometry(3, 2.5, 11), accentMat);
+    crest.position.set(0, 45.5, 0);
+    group.add(head, visor, crest);
+
+    // Shoulder Pads
+    const padGeo = new THREE.BoxGeometry(6, 7, 11);
+    const padL = new THREE.Mesh(padGeo, accentMat);
+    padL.position.set(-11, 31, 0);
+    const padR = new THREE.Mesh(padGeo, accentMat);
+    padR.position.set(11, 31, 0);
+    group.add(padL, padR);
+
+    // Left Arm
+    const armGeo = new THREE.BoxGeometry(4.5, 14, 4.5);
+    const armL = new THREE.Mesh(armGeo, armorMat);
+    armL.position.set(-11, 22, 0);
+    group.add(armL);
+
+    // Right Arm + 3D Rifle
+    const armR = new THREE.Group();
+    armR.position.set(11, 28, 0);
+    const armRMesh = new THREE.Mesh(armGeo, armorMat);
+    armRMesh.rotation.x = Math.PI / 2;
+    armRMesh.position.set(0, 0, 5);
+    armR.add(armRMesh);
+
+    const gun = create3DWeaponMesh('m16');
+    gun.scale.set(1.1, 1.1, 1.1);
+    gun.rotation.y = Math.PI;
+    gun.position.set(0, 1, 12);
+    armR.add(gun);
+    group.add(armR);
+
+    // Articulated Legs
+    const legGeo = new THREE.BoxGeometry(5.5, 16, 6);
+    const legL = new THREE.Mesh(legGeo, accentMat);
+    legL.position.set(-4.5, 8, 0);
+    const legR = new THREE.Mesh(legGeo, accentMat);
+    legR.position.set(4.5, 8, 0);
+    group.add(legL, legR);
+
+    return {
+      group,
+      legL,
+      legR,
+      armR,
+      torso,
+      walkPhase: 0,
+      lastX: 0,
+      lastZ: 0
+    };
   }
 
   private setupEvents(): void {
-    // Wire ShopModal Open/Close to HUD so pointer lock notice never obstructs the shop
     this.shopModal.onOpen = () => {
       this.hud.setShopOpen(true);
     };
@@ -200,7 +373,6 @@ export class Doom3DRenderer {
       this.hud.setShopOpen(false);
     };
 
-    // Pointer Lock on Click
     const lockHandler = () => {
       if (!this.shopModal.isOpen && !this.cardDraftModal.isOpen && !this.isPointerLocked) {
         document.body.requestPointerLock();
@@ -215,17 +387,14 @@ export class Doom3DRenderer {
       this.hud.setPointerLocked(this.isPointerLocked);
     });
 
-    // Mouse Look (Doom-style 3D Freelook)
     document.addEventListener('mousemove', (e) => {
       if (this.isPointerLocked) {
         this.yaw -= e.movementX * 0.0022;
         this.pitch -= e.movementY * 0.0022;
-        // Clamp pitch to avoid neck snap
         this.pitch = Math.max(-Math.PI * 0.44, Math.min(Math.PI * 0.44, this.pitch));
       }
     });
 
-    // Mouse Shooting
     document.addEventListener('mousedown', (e) => {
       if (e.button === 0 && this.isPointerLocked && !this.shopModal.isOpen && !this.cardDraftModal.isOpen) {
         this.isMouseDown = true;
@@ -237,20 +406,10 @@ export class Doom3DRenderer {
       }
     });
 
-    // Keyboard Tracking
     window.addEventListener('keydown', (e) => {
       this.pressedKeys.add(e.code);
 
-      if (e.code === 'KeyB') {
-        if (this.shopModal.isOpen) {
-          this.shopModal.close();
-        } else {
-          if (this.isPointerLocked) {
-            document.exitPointerLock();
-          }
-          this.shopModal.open();
-        }
-      } else if (e.code === 'Escape') {
+      if (e.code === 'Escape') {
         if (this.shopModal.isOpen) {
           this.shopModal.close();
         }
@@ -260,8 +419,6 @@ export class Doom3DRenderer {
         networkManager.send({ type: 'interact' });
       } else if (e.code === 'Space') {
         networkManager.send({ type: 'dash' });
-      } else if (e.code === 'KeyG') {
-        // Granaty narazie wyłączone ("narazie nie dzialaja granaty")
       }
     });
 
@@ -280,16 +437,14 @@ export class Doom3DRenderer {
     networkManager.onSnapshot = (snapshot) => {
       this.latestSnapshot = snapshot;
 
-      // Update doors
       for (const door of snapshot.doors) {
         const mesh = this.doorMeshes.get(door.id);
         if (mesh) {
-          // Open doors lower into floor
-          mesh.position.y = door.isOpen ? -110 : 60;
+          mesh.position.y = door.isOpen ? -120 : 70;
         }
       }
 
-      // ROUNDS Card Draft modal state management (kolejka wyboru kart po zostaniu 1 gracza)
+      // ROUNDS Card Draft modal state management
       if (snapshot.roundState === 'card_pick') {
         const isPicker = snapshot.cardPickerId === networkManager.playerId;
         if (snapshot.offeredCards && snapshot.offeredCards.length > 0) {
@@ -307,7 +462,6 @@ export class Doom3DRenderer {
         }
       }
 
-      // Update local player in HUD & shop
       const localP = snapshot.players.find((p) => p.id === networkManager.playerId);
       if (localP) {
         this.hud.update(localP, snapshot);
@@ -317,7 +471,6 @@ export class Doom3DRenderer {
 
     networkManager.onSoundEvent = (sound, weapon, shooterId) => {
       soundSystem.playSound(sound, weapon);
-      // Only trigger gun animation if shooter is local player (prevents enemy shots from kicking local weapon!)
       if (sound === 'shoot' && (!shooterId || shooterId === networkManager.playerId)) {
         this.weaponRenderer.triggerShoot();
       } else if (sound === 'reload' && (!shooterId || shooterId === networkManager.playerId)) {
@@ -343,89 +496,115 @@ export class Doom3DRenderer {
   private spawn3DExplosion(x: number, y: number, radius: number): void {
     soundSystem.playSound('explosion');
 
-    // Fiery shockwave billboard
-    const mat = new THREE.SpriteMaterial({
-      map: this.textures.explosionFlame,
+    const group = new THREE.Group();
+    group.position.set(x, 22, y);
+
+    // 1. Inner Incandescent Plasma Core Sphere
+    const coreGeo = new THREE.SphereGeometry(1, 20, 20);
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: 0xfef08a,
       transparent: true,
+      opacity: 0.95,
       blending: THREE.AdditiveBlending
     });
-    const sprite = new THREE.Sprite(mat);
-    sprite.position.set(x, 24, y);
-    sprite.scale.set(radius * 0.4, radius * 0.4, 1);
-    this.scene.add(sprite);
+    const core = new THREE.Mesh(coreGeo, coreMat);
+    group.add(core);
 
-    // Dynamic bright flash point light
-    const light = new THREE.PointLight(0xff6600, 5.0, radius * 2.2);
-    light.position.set(x, 30, y);
+    // 2. Expanding Shockwave Torus Ring
+    const ringGeo = new THREE.TorusGeometry(1, 0.12, 12, 32);
+    ringGeo.rotateX(Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xf97316,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    group.add(ring);
+
+    // 3. Flying 3D Spark / Debris Cubes
+    const debris: { mesh: THREE.Mesh; vx: number; vy: number; vz: number }[] = [];
+    const debGeo = new THREE.BoxGeometry(4.5, 4.5, 4.5);
+    const debMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+    for (let i = 0; i < 16; i++) {
+      const m = new THREE.Mesh(debGeo, debMat);
+      const ang = Math.random() * Math.PI * 2;
+      const spd = 120 + Math.random() * 260;
+      debris.push({
+        mesh: m,
+        vx: Math.cos(ang) * spd,
+        vy: 100 + Math.random() * 220,
+        vz: Math.sin(ang) * spd
+      });
+      group.add(m);
+    }
+
+    this.scene.add(group);
+
+    // Dynamic High-Intensity Point Light
+    const light = new THREE.PointLight(0xff6600, 8.0, radius * 2.8);
+    light.position.set(x, 36, y);
     this.scene.add(light);
 
     this.activeExplosions.push({
-      sprite,
+      group,
+      core,
+      ring,
+      debris,
       light,
       startTime: performance.now(),
-      duration: 500,
-      maxRadius: radius * 1.5
+      duration: 550,
+      maxRadius: radius * 1.15
     });
 
     this.spawn3DDamageText(x, y, 99999, true);
 
-    // Camera shake if nearby
     const dist = Math.hypot(this.predictedX - x, this.predictedZ - y);
     if (dist < radius * 2.2) {
       const intensity = Math.max(0.15, 1 - dist / (radius * 2.2));
-      this.cameraShake = Math.min(1.0, this.cameraShake + intensity * 0.6);
+      this.cameraShake = Math.min(1.0, this.cameraShake + intensity * 0.65);
     }
   }
 
   private spawn3DDamageText(x: number, y: number, damage: number, isKill: boolean): void {
     const canvas = document.createElement('canvas');
-    canvas.width = 128;
+    canvas.width = 160;
     canvas.height = 64;
     const ctx = canvas.getContext('2d')!;
 
-    ctx.font = 'bold 32px monospace';
-    ctx.fillStyle = isKill ? '#ef4444' : damage > 50 ? '#f59e0b' : '#ffffff';
+    ctx.font = '900 34px "Chakra Petch", monospace';
+    ctx.fillStyle = isKill ? '#ef4444' : damage > 50 ? '#fbbf24' : '#38bdf8';
     ctx.textAlign = 'center';
-    ctx.fillText(damage > 9999 ? 'KILL' : `-${damage}`, 64, 40);
+    ctx.shadowColor = '#000';
+    ctx.shadowBlur = 6;
+    ctx.fillText(damage > 9999 ? '💥 BOOM!' : `-${damage}`, 80, 42);
 
     const tex = new THREE.CanvasTexture(canvas);
-    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
     const sprite = new THREE.Sprite(mat);
-    sprite.position.set(x, 45, y);
-    sprite.scale.set(30, 15, 1);
+    sprite.position.set(x, 52, y);
+    sprite.scale.set(34, 14, 1);
 
     this.scene.add(sprite);
     this.damageTexts.push({
       sprite,
-      startY: 45,
+      startY: 52,
       startTime: performance.now(),
-      duration: 650
+      duration: 700
     });
   }
-
-  private lastFrameTime: number = 0;
 
   private getEffectiveWalls(): WallRect[] {
     const walls: WallRect[] = [...this.mapData.walls];
     if (this.latestSnapshot) {
       for (const door of this.latestSnapshot.doors) {
         if (!door.isOpen) {
-          walls.push({
-            x: door.x,
-            y: door.y,
-            w: door.width,
-            h: door.height
-          });
+          walls.push({ x: door.x, y: door.y, w: door.width, h: door.height });
         }
       }
     } else {
       for (const door of this.mapData.initialDoors) {
-        walls.push({
-          x: door.x,
-          y: door.y,
-          w: door.width,
-          h: door.height
-        });
+        walls.push({ x: door.x, y: door.y, w: door.width, h: door.height });
       }
     }
     return walls;
@@ -441,17 +620,24 @@ export class Doom3DRenderer {
     const snapshot = this.latestSnapshot;
     const localPlayer = snapshot?.players.find((p) => p.id === networkManager.playerId);
 
+    // Rotate 3D weapon holograms on Wall-Buy pedestals
+    for (const ped of this.wallBuyGroups) {
+      const wep = ped.getObjectByName('rotating_weapon');
+      if (wep) {
+        wep.rotation.y += dtSec * 1.8;
+        wep.position.y = 27 + Math.sin(timestamp * 0.004) * 3;
+      }
+    }
+
     // 1. Process 3D Player Input & Client-Side Prediction
     let isMoving = false;
     if (localPlayer) {
-      // Initialize predicted position on first frame
       if (!this.hasInitializedPos) {
         this.predictedX = localPlayer.x;
         this.predictedZ = localPlayer.y;
         this.hasInitializedPos = true;
       }
 
-      // Calculate Forward & Strafe movement directly from the 3D Camera view matrix
       let forward = 0;
       let strafe = 0;
 
@@ -462,18 +648,15 @@ export class Doom3DRenderer {
 
       isMoving = forward !== 0 || strafe !== 0;
 
-      // Apply Doom 3D Camera Rotation (YXZ)
       this.camera.rotation.set(0, 0, 0, 'YXZ');
       this.camera.rotation.y = this.yaw;
       this.camera.rotation.x = this.pitch;
 
-      // Camera horizontal forward direction in 3D
       const forwardDir = new THREE.Vector3();
       this.camera.getWorldDirection(forwardDir);
       forwardDir.y = 0;
       forwardDir.normalize();
 
-      // Camera right direction in 3D (forward x UP)
       const rightDir = new THREE.Vector3();
       rightDir.crossVectors(forwardDir, new THREE.Vector3(0, 1, 0)).normalize();
 
@@ -487,14 +670,20 @@ export class Doom3DRenderer {
 
         if (moveVec.lengthSq() > 0) {
           moveVec.normalize();
-          moveX = moveVec.x; // Map X
-          moveY = moveVec.z; // Map Y (Three.js Z is Map Y)
+          moveX = moveVec.x;
+          moveY = moveVec.z;
         }
       }
 
-      // Calculate local player speed with items & dash
+      // Calculate local player speed with ROUNDS cards & dash
       let speed = SERVER_CONFIG.PLAYER_BASE_SPEED;
-      for (const itemId of localPlayer.items) {
+      for (const cardId of localPlayer.cards || []) {
+        const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+        if (card?.stats.moveSpeedPct) {
+          speed *= 1 + card.stats.moveSpeedPct / 100;
+        }
+      }
+      for (const itemId of localPlayer.items || []) {
         const item = DEADLOCK_ITEMS.find((i) => i.id === itemId);
         if (item?.stats.moveSpeedPct) {
           speed *= 1 + item.stats.moveSpeedPct / 100;
@@ -504,8 +693,7 @@ export class Doom3DRenderer {
         speed = SERVER_CONFIG.PLAYER_DASH_SPEED;
       }
 
-      // Client-Side Prediction: Advance locally every single frame (60/144 FPS)
-      if (!localPlayer.downed && !localPlayer.isDead) {
+      if (!localPlayer.downed && !localPlayer.isDead && snapshot?.roundState === 'active') {
         const deltaX = moveX * speed * dtSec;
         const deltaY = moveY * speed * dtSec;
         const walls = this.getEffectiveWalls();
@@ -520,17 +708,14 @@ export class Doom3DRenderer {
         this.predictedX = resolved.x;
         this.predictedZ = resolved.y;
 
-        // Smooth reconciliation with server snapshot (eliminates network stutter)
         const errX = localPlayer.x - this.predictedX;
         const errZ = localPlayer.y - this.predictedZ;
         const distSq = errX * errX + errZ * errZ;
 
-        if (distSq > 100 * 100) {
-          // Large desync or teleport / respawn -> snap immediately
+        if (distSq > 120 * 120) {
           this.predictedX = localPlayer.x;
           this.predictedZ = localPlayer.y;
         } else if (distSq > 0.04) {
-          // Smoothly converge prediction towards server state
           const blend = Math.min(1, dtSec * 15);
           this.predictedX += errX * blend;
           this.predictedZ += errZ * blend;
@@ -540,25 +725,21 @@ export class Doom3DRenderer {
         this.predictedZ = localPlayer.y;
       }
 
-      // Head bobbing for realistic Doom feeling (drops to 10 on death)
-      const eyeHeight = (localPlayer.downed || localPlayer.isDead) ? 10 : 34;
+      const eyeHeight = localPlayer.downed || localPlayer.isDead ? 10 : 34;
       let bobY = 0;
       if (isMoving && !localPlayer.downed && !localPlayer.isDead) {
         this.headBobTimer += dtSec * 10;
-        bobY = Math.sin(this.headBobTimer) * 1.5;
+        bobY = Math.sin(this.headBobTimer) * 1.4;
       } else {
         this.headBobTimer = 0;
       }
 
-      // Position camera at predicted coordinates
       this.camera.position.x = this.predictedX;
       this.camera.position.z = this.predictedZ;
       this.camera.position.y = eyeHeight + bobY;
 
-      // Calculate server yaw: direction the camera is facing on the 2D server map plane
       const serverYaw = Math.atan2(forwardDir.z, forwardDir.x);
 
-      // Send to authoritative server with exact camera-relative movement & aim
       networkManager.send({
         type: 'input',
         up: forward > 0,
@@ -573,19 +754,16 @@ export class Doom3DRenderer {
         shoot: this.isMouseDown && this.isPointerLocked && !this.shopModal.isOpen && !this.cardDraftModal.isOpen && !localPlayer.isDead
       });
 
-      // Update First-Person Weapon Bob & Recoil
       this.weaponRenderer.update(dtMs, isMoving, localPlayer.weaponId, localPlayer.reloadProgress);
-
-      // Check interaction prompts using predicted position
       this.updatePrompts(this.predictedX, this.predictedZ, localPlayer);
     }
 
-    // 2. Render 3D Opponent Billboards & Entities with smooth interpolation
+    // 2. Render 3D Opponents, Barrels & Bullets
     if (snapshot) {
       this.updateZombies(snapshot.zombies, dtSec);
       this.updateOpponents(snapshot.players, dtSec);
       this.updatePowerups(snapshot.powerUps);
-      this.updateBarrels(snapshot.barrels);
+      this.updateBarrels(snapshot.barrels, timestamp);
       this.update3DTracers(snapshot);
     }
 
@@ -599,30 +777,48 @@ export class Doom3DRenderer {
         this.damageTexts.splice(i, 1);
       } else {
         const pct = elapsed / dt.duration;
-        dt.sprite.position.y = dt.startY + pct * 25;
+        dt.sprite.position.y = dt.startY + pct * 28;
         (dt.sprite.material as THREE.SpriteMaterial).opacity = 1 - pct;
       }
     }
 
-    // 4. Update Explosions (expanding fireball & fading light)
+    // 4. Update 3D Multi-Layered Explosions
     for (let i = this.activeExplosions.length - 1; i >= 0; i--) {
       const exp = this.activeExplosions[i];
       const elapsed = timestamp - exp.startTime;
       if (elapsed >= exp.duration) {
-        this.scene.remove(exp.sprite);
+        this.scene.remove(exp.group);
         this.scene.remove(exp.light);
-        exp.sprite.material.dispose();
+        exp.core.geometry.dispose();
+        (exp.core.material as THREE.Material).dispose();
+        exp.ring.geometry.dispose();
+        (exp.ring.material as THREE.Material).dispose();
         this.activeExplosions.splice(i, 1);
       } else {
         const pct = elapsed / exp.duration;
-        const curScale = THREE.MathUtils.lerp(exp.maxRadius * 0.3, exp.maxRadius, Math.sin(pct * Math.PI * 0.5));
-        exp.sprite.scale.set(curScale, curScale, 1);
-        (exp.sprite.material as THREE.SpriteMaterial).opacity = Math.max(0, 1 - pct);
-        exp.light.intensity = 5.0 * (1 - pct);
+        const easeOut = Math.sin(pct * Math.PI * 0.5);
+        const coreScale = THREE.MathUtils.lerp(10, exp.maxRadius * 0.65, easeOut);
+        exp.core.scale.set(coreScale, coreScale, coreScale);
+        (exp.core.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - pct * 1.15);
+
+        const ringScale = THREE.MathUtils.lerp(12, exp.maxRadius * 1.1, easeOut);
+        exp.ring.scale.set(ringScale, ringScale, ringScale);
+        (exp.ring.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - pct);
+
+        for (const d of exp.debris) {
+          d.mesh.position.x += d.vx * dtSec;
+          d.mesh.position.y += d.vy * dtSec;
+          d.mesh.position.z += d.vz * dtSec;
+          d.vy -= 420 * dtSec; // gravity
+          d.mesh.rotation.x += 8 * dtSec;
+          d.mesh.rotation.y += 8 * dtSec;
+        }
+
+        exp.light.intensity = 8.0 * (1 - pct);
       }
     }
 
-    // 5. Apply Camera Shake from explosions
+    // 5. Apply Camera Shake
     if (this.cameraShake > 0.001) {
       this.camera.rotation.y += (Math.random() - 0.5) * this.cameraShake * 0.08;
       this.camera.rotation.x += (Math.random() - 0.5) * this.cameraShake * 0.08;
@@ -635,58 +831,12 @@ export class Doom3DRenderer {
     requestAnimationFrame((t) => this.renderLoop(t));
   }
 
-  private updateZombies(zombies: ZombieState[], dtSec: number): void {
+  private updateZombies(zombies: ZombieState[], _dtSec: number): void {
     const activeIds = new Set(zombies.map((z) => z.id));
-
-    // Remove dead
     for (const [id, sprite] of this.zombieSprites) {
       if (!activeIds.has(id)) {
         this.scene.remove(sprite);
         this.zombieSprites.delete(id);
-      }
-    }
-
-    // Update / add
-    const animFrame = Math.floor(performance.now() / 250) % 2;
-
-    for (const z of zombies) {
-      let sprite = this.zombieSprites.get(z.id);
-      const h = z.type === 'brute' ? 32 : 24;
-
-      if (!sprite) {
-        const tex = this.textures.zombies[z.type]?.[0] || this.textures.zombies.walker[0];
-        const mat = new THREE.SpriteMaterial({ map: tex });
-        sprite = new THREE.Sprite(mat);
-        const w = z.type === 'brute' ? 50 : 36;
-        const spriteH = z.type === 'brute' ? 65 : 48;
-        sprite.scale.set(w, spriteH, 1);
-        sprite.position.set(z.x, h, z.y);
-        this.scene.add(sprite);
-        this.zombieSprites.set(z.id, sprite);
-      } else {
-        // Smoothly interpolate zombie position to eliminate network stepping
-        const targetX = z.x;
-        const targetZ = z.y;
-        const dx = targetX - sprite.position.x;
-        const dz = targetZ - sprite.position.z;
-
-        if (dx * dx + dz * dz > 120 * 120) {
-          sprite.position.x = targetX;
-          sprite.position.z = targetZ;
-        } else {
-          const lerpRate = Math.min(1, dtSec * 18);
-          sprite.position.x += dx * lerpRate;
-          sprite.position.z += dz * lerpRate;
-        }
-        sprite.position.y = h;
-      }
-
-      // Texture animation & hit flash
-      const texList = this.textures.zombies[z.type] || this.textures.zombies.walker;
-      const targetTex = z.isHit ? texList[2] : texList[animFrame];
-      if (sprite.material.map !== targetTex) {
-        sprite.material.map = targetTex;
-        sprite.material.needsUpdate = true;
       }
     }
   }
@@ -694,12 +844,10 @@ export class Doom3DRenderer {
   private updateOpponents(players: PlayerState[], dtSec: number): void {
     const activeIds = new Set(players.filter((p) => p.id !== networkManager.playerId).map((p) => p.id));
 
-    // Remove disconnected players and their HP bars
-    for (const [id, sprite] of this.playerSprites) {
+    for (const [id, model] of this.playerModels) {
       if (!activeIds.has(id)) {
-        this.scene.remove(sprite);
-        sprite.material.dispose();
-        this.playerSprites.delete(id);
+        this.scene.remove(model.group);
+        this.playerModels.delete(id);
 
         const hpBar = this.playerHpBars.get(id);
         if (hpBar) {
@@ -714,20 +862,17 @@ export class Doom3DRenderer {
     for (const p of players) {
       if (p.id === networkManager.playerId) continue;
 
-      let sprite = this.playerSprites.get(p.id);
+      let model = this.playerModels.get(p.id);
       let hpBar = this.playerHpBars.get(p.id);
 
-      if (!sprite) {
-        const tex = this.textures.zombies.walker[0];
-        const col = new THREE.Color(p.color || '#ef4444');
-        const mat = new THREE.SpriteMaterial({ map: tex, color: col });
-        sprite = new THREE.Sprite(mat);
-        sprite.scale.set(34, 46, 1);
-        sprite.position.set(p.x, 23, p.y);
-        this.scene.add(sprite);
-        this.playerSprites.set(p.id, sprite);
+      if (!model) {
+        model = this.createCyberOpponentModel(p.color || '#ef4444');
+        model.group.position.set(p.x, 0, p.y);
+        model.lastX = p.x;
+        model.lastZ = p.y;
+        this.scene.add(model.group);
+        this.playerModels.set(p.id, model);
 
-        // Overhead HP Bar billboard canvas
         const canvas = document.createElement('canvas');
         canvas.width = 256;
         canvas.height = 64;
@@ -735,79 +880,87 @@ export class Doom3DRenderer {
         const hpTex = new THREE.CanvasTexture(canvas);
         const hpMat = new THREE.SpriteMaterial({ map: hpTex, transparent: true, depthTest: false });
         const hpSprite = new THREE.Sprite(hpMat);
-        hpSprite.scale.set(36, 9, 1);
-        hpSprite.position.set(p.x, 50, p.y);
+        hpSprite.scale.set(38, 9.5, 1);
+        hpSprite.position.set(p.x, 56, p.y);
         this.scene.add(hpSprite);
         hpBar = { sprite: hpSprite, canvas, ctx, tex: hpTex };
         this.playerHpBars.set(p.id, hpBar);
       }
 
-      // Smooth position interpolation
       if (p.isDead) {
-        sprite.visible = false;
+        model.group.visible = false;
         if (hpBar) hpBar.sprite.visible = true;
       } else {
-        sprite.visible = true;
+        model.group.visible = true;
         if (hpBar) hpBar.sprite.visible = true;
 
-        const dx = p.x - sprite.position.x;
-        const dz = p.y - sprite.position.z;
-        if (dx * dx + dz * dz > 120 * 120) {
-          sprite.position.x = p.x;
-          sprite.position.z = p.y;
+        const dx = p.x - model.group.position.x;
+        const dz = p.y - model.group.position.z;
+        if (dx * dx + dz * dz > 140 * 140) {
+          model.group.position.x = p.x;
+          model.group.position.z = p.y;
         } else {
           const lerpRate = Math.min(1, dtSec * 18);
-          sprite.position.x += dx * lerpRate;
-          sprite.position.z += dz * lerpRate;
+          model.group.position.x += dx * lerpRate;
+          model.group.position.z += dz * lerpRate;
         }
-        sprite.position.y = 23;
+
+        // Rotate 3D gladiator to face their aim direction
+        model.group.rotation.y = -p.angle + Math.PI / 2;
+
+        // Animate legs when opponent moves
+        const moveDist = Math.hypot(model.group.position.x - model.lastX, model.group.position.z - model.lastZ);
+        model.lastX = model.group.position.x;
+        model.lastZ = model.group.position.z;
+
+        if (moveDist > 0.15) {
+          model.walkPhase += dtSec * 14;
+          model.legL.rotation.x = Math.sin(model.walkPhase) * 0.65;
+          model.legR.rotation.x = -Math.sin(model.walkPhase) * 0.65;
+        } else {
+          model.legL.rotation.x *= 0.85;
+          model.legR.rotation.x *= 0.85;
+        }
       }
 
-      // Position overhead HP Bar right above opponent head
+      // Update Overhead Name & HP Bar
       if (hpBar) {
-        hpBar.sprite.position.set(sprite.position.x, 50, sprite.position.z);
+        hpBar.sprite.position.set(model.group.position.x, 56, model.group.position.z);
 
         const ctx = hpBar.ctx;
         ctx.clearRect(0, 0, 256, 64);
 
         if (p.isDead) {
-          // Dead status banner
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-          ctx.fillRect(16, 10, 224, 44);
+          ctx.fillStyle = 'rgba(9, 13, 22, 0.9)';
+          ctx.fillRect(16, 12, 224, 40);
           ctx.strokeStyle = '#ef4444';
-          ctx.lineWidth = 3;
-          ctx.strokeRect(16, 10, 224, 44);
+          ctx.lineWidth = 2;
+          ctx.strokeRect(16, 12, 224, 40);
 
-          ctx.font = 'bold 20px monospace';
+          ctx.font = 'bold 18px "Chakra Petch", monospace';
           ctx.fillStyle = '#ef4444';
           ctx.textAlign = 'center';
-          const sec = Math.max(0, p.respawnTimer / 1000).toFixed(1);
-          ctx.fillText(`💀 RESPAWN ZA ${sec}s`, 128, 38);
+          ctx.fillText(`💀 WYELIMINOWANY`, 128, 38);
         } else {
-          // Player Name Box & Overhead Health Bar
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+          ctx.fillStyle = 'rgba(9, 13, 22, 0.85)';
           ctx.fillRect(16, 6, 224, 52);
-          ctx.strokeStyle = p.color || '#ef4444';
-          ctx.lineWidth = 3;
+          ctx.strokeStyle = p.color || '#38bdf8';
+          ctx.lineWidth = 2.5;
           ctx.strokeRect(16, 6, 224, 52);
 
-          // Name
-          ctx.font = 'bold 18px monospace';
+          ctx.font = 'bold 17px "Chakra Petch", monospace';
           ctx.fillStyle = '#f8fafc';
           ctx.textAlign = 'center';
-          ctx.fillText(p.name, 128, 25);
+          ctx.fillText(`${p.name} (${p.roundWins || 0}⭐)`, 128, 25);
 
-          // Bar Background
-          ctx.fillStyle = '#1e293b';
+          ctx.fillStyle = '#0f172a';
           ctx.fillRect(24, 33, 208, 18);
 
-          // Bar Fill
           const hpPct = Math.max(0, Math.min(1, p.hp / p.maxHp));
-          const barCol = hpPct > 0.5 ? '#22c55e' : hpPct > 0.25 ? '#f59e0b' : '#ef4444';
+          const barCol = hpPct > 0.5 ? '#10b981' : hpPct > 0.25 ? '#f59e0b' : '#ef4444';
           ctx.fillStyle = barCol;
           ctx.fillRect(24, 33, Math.round(hpPct * 208), 18);
 
-          // HP Numbers text
           ctx.font = 'bold 13px monospace';
           ctx.fillStyle = '#ffffff';
           ctx.fillText(`${Math.ceil(p.hp)} / ${p.maxHp} HP`, 128, 47);
@@ -821,9 +974,9 @@ export class Doom3DRenderer {
   private updatePowerups(powerUps: any[]): void {
     const activeIds = new Set(powerUps.map((p) => p.id));
 
-    for (const [id, sprite] of this.powerupSprites) {
+    for (const [id, obj] of this.powerupSprites) {
       if (!activeIds.has(id)) {
-        this.scene.remove(sprite);
+        this.scene.remove(obj);
         this.powerupSprites.delete(id);
       }
     }
@@ -831,16 +984,17 @@ export class Doom3DRenderer {
     const bob = Math.sin(performance.now() * 0.005) * 4;
 
     for (const pu of powerUps) {
-      let sprite = this.powerupSprites.get(pu.id);
-      if (!sprite) {
-        const mat = new THREE.SpriteMaterial({ color: 0xf59e0b });
-        sprite = new THREE.Sprite(mat);
-        sprite.scale.set(24, 24, 1);
-        this.scene.add(sprite);
-        this.powerupSprites.set(pu.id, sprite);
+      let mesh = this.powerupSprites.get(pu.id);
+      if (!mesh) {
+        mesh = new THREE.Mesh(
+          new THREE.OctahedronGeometry(12, 0),
+          new THREE.MeshBasicMaterial({ color: 0xfbbf24, wireframe: true })
+        );
+        this.scene.add(mesh);
+        this.powerupSprites.set(pu.id, mesh);
       }
-
-      sprite.position.set(pu.x, 24 + bob, pu.y);
+      mesh.position.set(pu.x, 24 + bob, pu.y);
+      mesh.rotation.y += 0.04;
     }
   }
 
@@ -852,8 +1006,8 @@ export class Doom3DRenderer {
       const ctx = c.getContext('2d')!;
       const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
       grad.addColorStop(0, '#ffffff');
-      grad.addColorStop(0.4, 'rgba(255, 230, 150, 0.9)');
-      grad.addColorStop(1, 'rgba(255, 120, 20, 0)');
+      grad.addColorStop(0.35, 'rgba(56, 189, 248, 0.95)');
+      grad.addColorStop(1, 'rgba(56, 189, 248, 0)');
       ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.arc(32, 32, 30, 0, Math.PI * 2);
@@ -864,7 +1018,6 @@ export class Doom3DRenderer {
   }
 
   private update3DTracers(snapshot: GameSnapshot): void {
-    // Clear old line & sprite tracers
     const now = performance.now();
     for (let i = this.activeTracers.length - 1; i >= 0; i--) {
       if (now >= this.activeTracers[i].dieTime) {
@@ -879,28 +1032,27 @@ export class Doom3DRenderer {
       }
     }
 
-    // Render 3D neon tracers & bullet heads for active bullets
     for (const b of snapshot.bullets) {
-      const len = 0.035;
+      const len = 0.032;
       const tailX = b.x - b.vx * len;
       const tailZ = b.y - b.vy * len;
 
-      const pts = [new THREE.Vector3(tailX, 22, tailZ), new THREE.Vector3(b.x, 22, b.y)];
-      const geo = new THREE.BufferGeometry().setFromPoints(pts);
-
-      let col = 0xf59e0b;
+      let col = 0x38bdf8;
+      if (b.weaponId === 'shotgun') col = 0xf59e0b;
       if (b.weaponId === 'raygun') col = 0x22c55e;
-      if (b.isTesla) col = 0x38bdf8;
-      if (b.bouncesLeft > 0) col = 0xec4899; // Bouncy bullets glow hot pink!
+      if (b.isTesla) col = 0xa855f7;
+      if (b.bouncesLeft > 0) col = 0xec4899;
 
+      const pts = [new THREE.Vector3(tailX, 24, tailZ), new THREE.Vector3(b.x, 24, b.y)];
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
       const mat = new THREE.LineBasicMaterial({ color: col, linewidth: 2 });
       const line = new THREE.Line(geo, mat);
       this.scene.add(line);
-      this.activeTracers.push({ mesh: line, dieTime: now + 50 });
+      this.activeTracers.push({ mesh: line, dieTime: now + 45 });
 
-      // Glowing bullet head (bullet size scaled!)
-      const radius = b.bulletRadius || 3;
-      const spriteSize = Math.max(8, radius * 3.5);
+      // 3D Glowing Plasma Orb Head (scaled by bulletRadius)
+      const radius = b.bulletRadius || 5;
+      const spriteSize = Math.max(10, radius * 3.6);
       const sMat = new THREE.SpriteMaterial({
         map: this.getBulletTexture(),
         color: col,
@@ -909,19 +1061,81 @@ export class Doom3DRenderer {
       });
       const sprite = new THREE.Sprite(sMat);
       sprite.scale.set(spriteSize, spriteSize, 1);
-      sprite.position.set(b.x, 22, b.y);
+      sprite.position.set(b.x, 24, b.y);
       this.scene.add(sprite);
-      this.activeTracers.push({ mesh: sprite, dieTime: now + 50 });
+      this.activeTracers.push({ mesh: sprite, dieTime: now + 45 });
+    }
+  }
+
+  private updateBarrels(barrels: any[], timestamp: number): void {
+    if (!barrels) return;
+    const activeIds = new Set<string>();
+
+    for (const b of barrels) {
+      if (b.isExploded) continue;
+      activeIds.add(b.id);
+
+      let barrelGroup = this.barrelMeshes.get(b.id);
+      if (!barrelGroup) {
+        barrelGroup = new THREE.Group();
+
+        // Main Textured Plasma Cylinder
+        const bodyGeo = new THREE.CylinderGeometry(14, 14, 34, 16);
+        const bodyMat = new THREE.MeshStandardMaterial({
+          map: this.textures.explosiveBarrel,
+          roughness: 0.3,
+          metalness: 0.7
+        });
+        const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+        bodyMesh.position.y = 17;
+        barrelGroup.add(bodyMesh);
+
+        // Top & Bottom Heavy Metal Flanges
+        const capGeo = new THREE.CylinderGeometry(15.2, 15.2, 3, 16);
+        const capMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.9, roughness: 0.2 });
+        const topCap = new THREE.Mesh(capGeo, capMat);
+        topCap.position.y = 33.5;
+        const botCap = new THREE.Mesh(capGeo, capMat);
+        botCap.position.y = 1.5;
+        barrelGroup.add(topCap, botCap);
+
+        // Glowing Red/Orange Top Hazard Core Ring
+        const glowRing = new THREE.Mesh(
+          new THREE.TorusGeometry(10, 1.5, 8, 20),
+          new THREE.MeshBasicMaterial({ color: 0xef4444 })
+        );
+        glowRing.rotation.x = Math.PI / 2;
+        glowRing.position.y = 35.2;
+        glowRing.name = 'hazard_ring';
+        barrelGroup.add(glowRing);
+
+        barrelGroup.position.set(b.x, 0, b.y);
+        this.scene.add(barrelGroup);
+        this.barrelMeshes.set(b.id, barrelGroup);
+      } else {
+        barrelGroup.position.set(b.x, 0, b.y);
+        const ring = barrelGroup.getObjectByName('hazard_ring');
+        if (ring) {
+          const pulse = 0.85 + Math.sin(timestamp * 0.008) * 0.2;
+          ring.scale.set(pulse, pulse, 1);
+        }
+      }
+    }
+
+    for (const [id, group] of this.barrelMeshes) {
+      if (!activeIds.has(id)) {
+        this.scene.remove(group);
+        this.barrelMeshes.delete(id);
+      }
     }
   }
 
   private updatePrompts(px: number, py: number, player: PlayerState): void {
-    if (player.downed) {
+    if (player.downed || player.isDead) {
       this.hud.setPrompt(null);
       return;
     }
 
-    // Check doors
     for (const door of this.mapData.initialDoors) {
       const dx = door.x + door.width / 2 - px;
       const dy = door.y + door.height / 2 - py;
@@ -931,59 +1145,21 @@ export class Doom3DRenderer {
       }
     }
 
-    // Check Wall Buys
     for (const wb of this.mapData.wallBuys) {
       const dx = wb.x - px;
       const dy = wb.y - py;
-      if (dx * dx + dy * dy <= 80 * 80) {
+      if (dx * dx + dy * dy <= 85 * 85) {
         const wep = WEAPONS[wb.weaponId];
         if (player.weaponId === wb.weaponId) {
-          this.hud.setPrompt(`[E] KUP AMUNICJĘ DO ${wep.name} (${wb.ammoCost} PKT)`);
+          this.hud.setPrompt(`[E] UZUPEŁNIJ AMUNICJĘ: ${wep.name}`);
         } else {
-          this.hud.setPrompt(`[E] KUP BROŃ: ${wep.name} (${wb.cost} PKT)`);
+          this.hud.setPrompt(`[E] WEŹ BROŃ: ${wep.name}`);
         }
         return;
       }
     }
 
     this.hud.setPrompt(null);
-  }
-
-  private updateBarrels(barrels: any[]): void {
-    if (!barrels) return;
-    const activeIds = new Set<string>();
-
-    for (const b of barrels) {
-      if (b.isExploded) continue;
-      activeIds.add(b.id);
-
-      let mesh = this.barrelMeshes.get(b.id);
-      if (!mesh) {
-        // Red industrial hazard barrel 3D cylinder
-        const geo = new THREE.CylinderGeometry(14, 14, 34, 12);
-        const mat = new THREE.MeshBasicMaterial({ map: this.textures.explosiveBarrel });
-        mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(b.x, 17, b.y);
-        this.scene.add(mesh);
-        this.barrelMeshes.set(b.id, mesh);
-      } else {
-        mesh.position.set(b.x, 17, b.y);
-      }
-    }
-
-    // Remove exploded barrels from 3D scene
-    for (const [id, mesh] of this.barrelMeshes) {
-      if (!activeIds.has(id)) {
-        this.scene.remove(mesh);
-        mesh.geometry.dispose();
-        if (Array.isArray(mesh.material)) {
-          mesh.material.forEach((m) => m.dispose());
-        } else {
-          mesh.material.dispose();
-        }
-        this.barrelMeshes.delete(id);
-      }
-    }
   }
 
   public destroy(): void {
@@ -993,17 +1169,12 @@ export class Doom3DRenderer {
       hpBar.sprite.material.dispose();
     }
     this.playerHpBars.clear();
-
-    for (const [_, mesh] of this.barrelMeshes) {
-      this.scene.remove(mesh);
-      mesh.geometry.dispose();
-    }
+    this.playerModels.clear();
     this.barrelMeshes.clear();
 
     for (const exp of this.activeExplosions) {
-      this.scene.remove(exp.sprite);
+      this.scene.remove(exp.group);
       this.scene.remove(exp.light);
-      exp.sprite.material.dispose();
     }
     this.activeExplosions = [];
 

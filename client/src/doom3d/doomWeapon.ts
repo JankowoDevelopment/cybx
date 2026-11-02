@@ -1,19 +1,175 @@
+import * as THREE from 'three';
 import { WeaponType } from '@shared/types.js';
+
+export function create3DWeaponMesh(weaponId: WeaponType): THREE.Group {
+  const group = new THREE.Group();
+
+  const darkMetal = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.35, metalness: 0.85 });
+  const gunMetal = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.25, metalness: 0.9 });
+  const gripMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.8, metalness: 0.2 });
+
+  let neonColor = 0x38bdf8;
+  if (weaponId === 'shotgun') neonColor = 0xf59e0b;
+  if (weaponId === 'thompson') neonColor = 0xa855f7;
+  if (weaponId === 'raygun') neonColor = 0x22c55e;
+  if (weaponId === 'm1911') neonColor = 0xfbbf24;
+
+  const neonMat = new THREE.MeshBasicMaterial({ color: neonColor });
+
+  if (weaponId === 'm16') {
+    // Main Receiver
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2.2, 3.0, 14), darkMetal);
+    group.add(body);
+
+    // Barrel & Handguard
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 12, 12), gunMetal);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.4, -10);
+    group.add(barrel);
+
+    const shroud = new THREE.Mesh(new THREE.BoxGeometry(1.8, 2.0, 8), gunMetal);
+    shroud.position.set(0, 0.2, -8);
+    group.add(shroud);
+
+    // Glowing Cyber Energy Rails
+    const railL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.3, 12), neonMat);
+    railL.position.set(-1.12, 0.8, -3);
+    const railR = railL.clone();
+    railR.position.x = 1.12;
+    group.add(railL, railR);
+
+    // Holographic Optic Sight
+    const scopeFrame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.4, 3.2), darkMetal);
+    scopeFrame.position.set(0, 2.1, -1);
+    const holoGlass = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.1, 0.9),
+      new THREE.MeshBasicMaterial({ color: neonColor, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
+    );
+    holoGlass.position.set(0, 2.2, -2.5);
+    group.add(scopeFrame, holoGlass);
+
+    // Magazine
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(1.4, 4.5, 2.4), gripMat);
+    mag.position.set(0, -3.0, -2.5);
+    mag.rotation.x = 0.2;
+    group.add(mag);
+  } else if (weaponId === 'shotgun') {
+    // Heavy Double-Tube Cyber Shotgun
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2.8, 3.2, 13), darkMetal);
+    group.add(body);
+
+    const barrelTop = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 13, 12), gunMetal);
+    barrelTop.rotation.x = Math.PI / 2;
+    barrelTop.position.set(0, 0.7, -10);
+
+    const barrelBot = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 11, 12), darkMetal);
+    barrelBot.rotation.x = Math.PI / 2;
+    barrelBot.position.set(0, -0.5, -9);
+
+    const pump = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.8, 5.5), gripMat);
+    pump.position.set(0, -0.6, -8.5);
+
+    const heatStrip = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.4, 10), neonMat);
+    heatStrip.position.set(0, 1.1, -4);
+
+    group.add(barrelTop, barrelBot, pump, heatStrip);
+  } else if (weaponId === 'thompson') {
+    // Cyber Submachine Gun with Drum Magazine
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2.1, 2.8, 11), gunMetal);
+    group.add(body);
+
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 9, 12), darkMetal);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.4, -8.5);
+
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(2.8, 2.8, 1.8, 16), darkMetal);
+    drum.rotation.x = Math.PI / 2;
+    drum.position.set(0, -2.2, -3.0);
+
+    const drumRing = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 1.9, 16), neonMat);
+    drumRing.rotation.x = Math.PI / 2;
+    drumRing.position.set(0, -2.2, -3.0);
+
+    const topRail = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.3, 10), neonMat);
+    topRail.position.set(0, 1.5, -1);
+
+    group.add(barrel, drum, drumRing, topRail);
+  } else if (weaponId === 'raygun') {
+    // Alien Plasma Cannon
+    const body = new THREE.Mesh(new THREE.SphereGeometry(2.4, 16, 16), darkMetal);
+    body.scale.set(0.85, 0.9, 2.2);
+    group.add(body);
+
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.4, 11, 16), neonMat);
+    core.rotation.x = Math.PI / 2;
+    core.position.set(0, 0.3, -8);
+    group.add(core);
+
+    // Floating energy rings around barrel
+    for (let i = 0; i < 3; i++) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.4 - i * 0.2, 0.18, 8, 20), neonMat);
+      ring.position.set(0, 0.3, -5 - i * 3);
+      group.add(ring);
+    }
+  } else {
+    // Tactical Cyber Pistol (m1911)
+    const slide = new THREE.Mesh(new THREE.BoxGeometry(1.8, 2.2, 8.5), gunMetal);
+    slide.position.set(0, 0.5, -2);
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(1.5, 3.6, 2.2), gripMat);
+    grip.position.set(0, -1.8, 1.2);
+    grip.rotation.x = 0.25;
+    const laser = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 7), neonMat);
+    laser.position.set(0, -0.6, -2.5);
+    group.add(slide, grip, laser);
+  }
+
+  return group;
+}
 
 export class DoomWeaponRenderer {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
 
+  public weaponGroup: THREE.Group;
+  private currentModel: THREE.Group | null = null;
+  private currentWeaponId: WeaponType | null = null;
+  private muzzleMesh: THREE.Mesh;
+  private muzzleLight: THREE.PointLight;
+
   private bobTimer: number = 0;
   private recoilOffset: number = 0;
   private muzzleFlashTimer: number = 0;
-  private reloadTimer: number = 0;
-  private isReloading: boolean = false;
-
   private hitmarkerTimer: number = 0;
   private isHitmarkerKill: boolean = false;
 
-  constructor() {
+  constructor(camera?: THREE.PerspectiveCamera) {
+    // 1. 3D Viewmodel Group attached to Player Camera
+    this.weaponGroup = new THREE.Group();
+    this.weaponGroup.position.set(4.2, -3.8, -7.5);
+
+    // 3D Muzzle Flash Starburst + Dynamic Light
+    const flashGeo = new THREE.OctahedronGeometry(1.8, 0);
+    flashGeo.scale(1.2, 1.2, 2.5);
+    const flashMat = new THREE.MeshBasicMaterial({
+      color: 0xfef08a,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending
+    });
+    this.muzzleMesh = new THREE.Mesh(flashGeo, flashMat);
+    this.muzzleMesh.position.set(0, 0.5, -16.5);
+    this.muzzleMesh.visible = false;
+    this.weaponGroup.add(this.muzzleMesh);
+
+    this.muzzleLight = new THREE.PointLight(0xf59e0b, 0, 120);
+    this.muzzleLight.position.set(0, 1, -16);
+    this.weaponGroup.add(this.muzzleLight);
+
+    if (camera) {
+      camera.add(this.weaponGroup);
+    }
+
+    // 2. Crisp 2D Overlay for Dynamic Crosshair & Hitmarkers
     this.canvas = document.createElement('canvas');
     this.canvas.id = 'doom-weapon-canvas';
     this.canvas.style.cssText = `
@@ -32,250 +188,146 @@ export class DoomWeaponRenderer {
     window.addEventListener('resize', () => this.resize());
   }
 
+  public mountToCamera(camera: THREE.PerspectiveCamera): void {
+    camera.add(this.weaponGroup);
+  }
+
   private resize(): void {
     this.canvas.width = window.innerWidth;
     this.canvas.height = window.innerHeight;
   }
 
   public triggerShoot(): void {
-    this.recoilOffset = 24;
-    this.muzzleFlashTimer = 65; // ms
+    this.recoilOffset = 1.0;
+    this.muzzleFlashTimer = 55;
   }
 
   public triggerReload(): void {
-    this.isReloading = true;
-    this.reloadTimer = 0;
+    // Handled smoothly via reloadProgress
   }
 
   public triggerHitmarker(isKill: boolean): void {
-    this.hitmarkerTimer = 110;
+    this.hitmarkerTimer = 140;
     this.isHitmarkerKill = isKill;
   }
 
   public update(dtMs: number, isMoving: boolean, weaponId: WeaponType, reloadProgress: number): void {
-    const ctx = this.ctx;
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    // Rebuild 3D weapon model if weapon changed
+    if (this.currentWeaponId !== weaponId) {
+      if (this.currentModel) {
+        this.weaponGroup.remove(this.currentModel);
+      }
+      this.currentModel = create3DWeaponMesh(weaponId);
+      this.weaponGroup.add(this.currentModel);
+      this.currentWeaponId = weaponId;
+    }
 
     // Update timers
     if (isMoving) {
-      this.bobTimer += dtMs * 0.008;
+      this.bobTimer += dtMs * 0.009;
     } else {
-      this.bobTimer = 0;
+      this.bobTimer += dtMs * 0.002; // Subtle idle breathing
     }
 
     if (this.recoilOffset > 0) {
-      this.recoilOffset = Math.max(0, this.recoilOffset - dtMs * 0.12);
+      this.recoilOffset = Math.max(0, this.recoilOffset - dtMs * 0.007);
     }
 
     if (this.muzzleFlashTimer > 0) {
       this.muzzleFlashTimer -= dtMs;
+      this.muzzleMesh.visible = true;
+      this.muzzleMesh.rotation.z += 0.6;
+      const scale = 0.8 + Math.random() * 0.6;
+      this.muzzleMesh.scale.set(scale, scale, scale * 1.6);
+      this.muzzleLight.intensity = 3.5;
+    } else {
+      this.muzzleMesh.visible = false;
+      this.muzzleLight.intensity = 0;
     }
 
     if (this.hitmarkerTimer > 0) {
       this.hitmarkerTimer -= dtMs;
     }
 
-    // Weapon sway
-    const bobX = Math.sin(this.bobTimer) * 14;
-    const bobY = Math.abs(Math.cos(this.bobTimer * 2)) * 12;
+    // 3D Weapon Transform (Sway + Recoil Kick + Reload Tilt)
+    const swayX = isMoving ? Math.sin(this.bobTimer) * 0.35 : Math.sin(this.bobTimer) * 0.06;
+    const swayY = isMoving ? Math.abs(Math.cos(this.bobTimer * 2)) * 0.28 : Math.cos(this.bobTimer * 2) * 0.04;
 
-    // Reload drop
-    let reloadDropY = 0;
+    let reloadDipY = 0;
+    let reloadTiltX = 0;
+    let reloadRollZ = 0;
     if (reloadProgress > 0 && reloadProgress < 1) {
-      reloadDropY = Math.sin(reloadProgress * Math.PI) * 120;
+      const s = Math.sin(reloadProgress * Math.PI);
+      reloadDipY = -s * 2.2;
+      reloadTiltX = s * 0.65;
+      reloadRollZ = s * 0.45;
     }
 
-    const centerX = this.canvas.width / 2 + bobX;
-    const baseY = this.canvas.height + this.recoilOffset + bobY + reloadDropY;
+    this.weaponGroup.position.set(
+      4.0 + swayX,
+      -3.6 - swayY + reloadDipY,
+      -7.5 + this.recoilOffset * 2.4
+    );
 
-    // Render First-Person Weapon
-    this.drawWeaponSprite(ctx, centerX, baseY, weaponId);
+    this.weaponGroup.rotation.set(
+      this.recoilOffset * 0.28 + reloadTiltX,
+      -0.04 + swayX * 0.05,
+      reloadRollZ
+    );
 
-    // Render Muzzle Flash
-    if (this.muzzleFlashTimer > 0) {
-      this.drawMuzzleFlash(ctx, centerX, baseY - 120, weaponId);
-    }
-
-    // Render Crosshair & Hitmarker
+    // Draw 2D Cyber Crosshair & Hitmarkers
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.drawCrosshair(ctx);
-  }
-
-  private drawWeaponSprite(ctx: CanvasRenderingContext2D, cx: number, cy: number, weaponId: WeaponType): void {
-    ctx.save();
-
-    if (weaponId === 'raygun') {
-      // Wonder Weapon: Retro Futuristic Alien Raygun (Doom BFG / Raygun style)
-      ctx.fillStyle = '#dc2626';
-      ctx.beginPath();
-      ctx.ellipse(cx, cy - 80, 50, 110, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Glowing green coils
-      ctx.fillStyle = '#22c55e';
-      ctx.fillRect(cx - 16, cy - 140, 32, 16);
-      ctx.fillRect(cx - 16, cy - 110, 32, 16);
-      ctx.fillRect(cx - 16, cy - 80, 32, 16);
-
-      // Gold barrel tip
-      ctx.fillStyle = '#f59e0b';
-      ctx.fillRect(cx - 12, cy - 175, 24, 35);
-      ctx.strokeRect(cx - 12, cy - 175, 24, 35);
-
-      // Cybernetic hands
-      ctx.fillStyle = '#1e293b';
-      ctx.beginPath();
-      ctx.arc(cx - 40, cy - 10, 24, 0, Math.PI * 2);
-      ctx.arc(cx + 40, cy - 10, 24, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (weaponId === 'shotgun') {
-      // Double Barrel Trench Shotgun (Classic Doom Super Shotgun style)
-      // Twin Heavy Steel Barrels
-      ctx.fillStyle = '#334155';
-      ctx.fillRect(cx - 24, cy - 160, 20, 140);
-      ctx.fillRect(cx + 4, cy - 160, 20, 140);
-
-      // Barrel muzzle openings
-      ctx.fillStyle = '#020617';
-      ctx.beginPath();
-      ctx.arc(cx - 14, cy - 160, 8, 0, Math.PI * 2);
-      ctx.arc(cx + 14, cy - 160, 8, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Wooden foregrip
-      ctx.fillStyle = '#78350f';
-      ctx.fillRect(cx - 28, cy - 70, 56, 45);
-
-      // Doom Marine Gloves
-      ctx.fillStyle = '#3f3f46';
-      ctx.beginPath();
-      ctx.arc(cx - 36, cy - 30, 22, 0, Math.PI * 2);
-      ctx.arc(cx + 36, cy - 30, 22, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (weaponId === 'thompson') {
-      // Thompson SMG with Circular Drum Magazine
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(cx - 10, cy - 170, 20, 130);
-
-      // Wooden stock & foregrip
-      ctx.fillStyle = '#78350f';
-      ctx.fillRect(cx - 14, cy - 110, 28, 40);
-
-      // Drum magazine
-      ctx.fillStyle = '#0f172a';
-      ctx.beginPath();
-      ctx.ellipse(cx, cy - 50, 40, 25, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Hands
-      ctx.fillStyle = '#3f3f46';
-      ctx.beginPath();
-      ctx.arc(cx - 30, cy - 40, 20, 0, Math.PI * 2);
-      ctx.arc(cx + 30, cy - 40, 20, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (weaponId === 'm16') {
-      // M16 Assault Rifle (Carry handle + flash hider)
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(cx - 9, cy - 190, 18, 150);
-
-      // Carry handle sight
-      ctx.fillStyle = '#334155';
-      ctx.fillRect(cx - 6, cy - 140, 12, 30);
-
-      // Curved magazine
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(cx - 8, cy - 60, 16, 50);
-
-      // Hands
-      ctx.fillStyle = '#3f3f46';
-      ctx.beginPath();
-      ctx.arc(cx - 32, cy - 50, 22, 0, Math.PI * 2);
-      ctx.arc(cx + 32, cy - 50, 22, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      // M1911 Pistol (Centered Doom Pistol view)
-      ctx.fillStyle = '#475569';
-      ctx.fillRect(cx - 12, cy - 130, 24, 100);
-
-      // Top slide highlight
-      ctx.fillStyle = '#94a3b8';
-      ctx.fillRect(cx - 8, cy - 130, 16, 12);
-
-      // Muzzle bore
-      ctx.fillStyle = '#020617';
-      ctx.beginPath();
-      ctx.arc(cx, cy - 130, 5, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Two-handed grip
-      ctx.fillStyle = '#3f3f46';
-      ctx.beginPath();
-      ctx.arc(cx - 20, cy - 35, 20, 0, Math.PI * 2);
-      ctx.arc(cx + 20, cy - 35, 20, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    ctx.restore();
-  }
-
-  private drawMuzzleFlash(ctx: CanvasRenderingContext2D, cx: number, cy: number, weaponId: WeaponType): void {
-    ctx.save();
-    const flashCol = weaponId === 'raygun' ? '#22c55e' : '#f59e0b';
-    const coreCol = weaponId === 'raygun' ? '#86efac' : '#fef08a';
-
-    // Outer plasma burst
-    ctx.fillStyle = flashCol;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 50, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Hot inner core
-    ctx.fillStyle = coreCol;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 28, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(cx, cy, 14, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.restore();
   }
 
   private drawCrosshair(ctx: CanvasRenderingContext2D): void {
     const cx = this.canvas.width / 2;
     const cy = this.canvas.height / 2;
+    const spreadGap = 6 + this.recoilOffset * 14;
+    const len = 8;
 
     ctx.save();
+    // Outer shadow for contrast
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.lineWidth = 4;
+    this.strokeCrosshairLines(ctx, cx, cy, spreadGap, len);
 
-    // Hitmarker Reticle ('X')
+    // Inner glowing cyan crosshair
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2;
+    this.strokeCrosshairLines(ctx, cx, cy, spreadGap, len);
+
+    // Center precision dot
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Hitmarker X
     if (this.hitmarkerTimer > 0) {
-      ctx.strokeStyle = this.isHitmarkerKill ? '#ef4444' : '#ffffff';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(cx - 10, cy - 10); ctx.lineTo(cx - 4, cy - 4);
-      ctx.moveTo(cx + 10, cy - 10); ctx.lineTo(cx + 4, cy - 4);
-      ctx.moveTo(cx - 10, cy + 10); ctx.lineTo(cx - 4, cy + 4);
-      ctx.moveTo(cx + 10, cy + 10); ctx.lineTo(cx + 4, cy + 4);
-      ctx.stroke();
-    } else {
-      // Standard Tactical Dot + Crosshair
-      ctx.strokeStyle = '#22c55e';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(cx - 12, cy); ctx.lineTo(cx - 4, cy);
-      ctx.moveTo(cx + 4, cy); ctx.lineTo(cx + 12, cy);
-      ctx.moveTo(cx, cy - 12); ctx.lineTo(cx, cy - 4);
-      ctx.moveTo(cx, cy + 4); ctx.lineTo(cx, cy + 12);
-      ctx.stroke();
+      ctx.strokeStyle = this.isHitmarkerKill ? '#ef4444' : '#f8fafc';
+      ctx.lineWidth = this.isHitmarkerKill ? 3.5 : 2.2;
+      const hmGap = 5;
+      const hmLen = this.isHitmarkerKill ? 14 : 10;
 
-      ctx.fillStyle = '#ef4444';
       ctx.beginPath();
-      ctx.arc(cx, cy, 2, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(cx - hmGap, cy - hmGap); ctx.lineTo(cx - hmLen, cy - hmLen);
+      ctx.moveTo(cx + hmGap, cy - hmGap); ctx.lineTo(cx + hmLen, cy - hmLen);
+      ctx.moveTo(cx - hmGap, cy + hmGap); ctx.lineTo(cx - hmLen, cy + hmLen);
+      ctx.moveTo(cx + hmGap, cy + hmGap); ctx.lineTo(cx + hmLen, cy + hmLen);
+      ctx.stroke();
     }
-
     ctx.restore();
+  }
+
+  private strokeCrosshairLines(ctx: CanvasRenderingContext2D, cx: number, cy: number, gap: number, len: number): void {
+    ctx.beginPath();
+    ctx.moveTo(cx - gap - len, cy); ctx.lineTo(cx - gap, cy);
+    ctx.moveTo(cx + gap, cy); ctx.lineTo(cx + gap + len, cy);
+    ctx.moveTo(cx, cy - gap - len); ctx.lineTo(cx, cy - gap);
+    ctx.moveTo(cx, cy + gap); ctx.lineTo(cx, cy + gap + len);
+    ctx.stroke();
   }
 
   public destroy(): void {
