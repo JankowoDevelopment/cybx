@@ -1,8 +1,11 @@
 import * as THREE from 'three';
 import { networkManager } from '../network/networkManager.js';
 import { GameSnapshot, PlayerState, ZombieState, DoorState, WallBuyState, MysteryBoxState } from '@shared/types.js';
+import { SERVER_CONFIG } from '@shared/constants.js';
+import { DEADLOCK_ITEMS } from '@shared/items.js';
+import { resolveMovement } from '@shared/collision.js';
 import { WEAPONS } from '@shared/weapons.js';
-import { createDefaultMap, MapData } from '@shared/map.js';
+import { createDefaultMap, MapData, WallRect } from '@shared/map.js';
 import { createDoomTextures, DoomTextureSet } from './doomTextures.js';
 import { DoomWeaponRenderer } from './doomWeapon.js';
 import { DoomHud } from './doomHud.js';
@@ -24,6 +27,12 @@ export class Doom3DRenderer {
   private yaw: number = 0;
   private pitch: number = 0;
   private isPointerLocked: boolean = false;
+
+  // Client-Side Prediction & Motion Smoothing
+  private predictedX: number = 700;
+  private predictedZ: number = 1000;
+  private hasInitializedPos: boolean = false;
+  private headBobTimer: number = 0;
 
   // Key States
   private pressedKeys: Set<string> = new Set();
@@ -346,28 +355,51 @@ export class Doom3DRenderer {
 
   private lastFrameTime: number = 0;
 
+  private getEffectiveWalls(): WallRect[] {
+    const walls: WallRect[] = [...this.mapData.walls];
+    if (this.latestSnapshot) {
+      for (const door of this.latestSnapshot.doors) {
+        if (!door.isOpen) {
+          walls.push({
+            x: door.x,
+            y: door.y,
+            w: door.width,
+            h: door.height
+          });
+        }
+      }
+    } else {
+      for (const door of this.mapData.initialDoors) {
+        walls.push({
+          x: door.x,
+          y: door.y,
+          w: door.width,
+          h: door.height
+        });
+      }
+    }
+    return walls;
+  }
+
   private renderLoop(timestamp: number): void {
     if (!this.isRunning) return;
 
     const dtMs = Math.min(100, timestamp - this.lastFrameTime);
+    const dtSec = Math.min(0.1, dtMs / 1000);
     this.lastFrameTime = timestamp;
 
     const snapshot = this.latestSnapshot;
     const localPlayer = snapshot?.players.find((p) => p.id === networkManager.playerId);
 
-    // 1. Process 3D Player Input & Camera Rotation
+    // 1. Process 3D Player Input & Client-Side Prediction
     let isMoving = false;
     if (localPlayer) {
-      // Sync Camera Position to Player's 2D plane (X, Z in Three.js)
-      const eyeHeight = localPlayer.downed ? 12 : 34;
-      this.camera.position.x = localPlayer.x;
-      this.camera.position.y = eyeHeight;
-      this.camera.position.z = localPlayer.y;
-
-      // Apply Doom 3D Camera Rotation (YXZ)
-      this.camera.rotation.set(0, 0, 0, 'YXZ');
-      this.camera.rotation.y = this.yaw;
-      this.camera.rotation.x = this.pitch;
+      // Initialize predicted position on first frame
+      if (!this.hasInitializedPos) {
+        this.predictedX = localPlayer.x;
+        this.predictedZ = localPlayer.y;
+        this.hasInitializedPos = true;
+      }
 
       // Calculate Forward & Strafe movement directly from the 3D Camera view matrix
       let forward = 0;
@@ -379,6 +411,11 @@ export class Doom3DRenderer {
       if (this.pressedKeys.has('KeyD') || this.pressedKeys.has('ArrowRight')) strafe += 1;
 
       isMoving = forward !== 0 || strafe !== 0;
+
+      // Apply Doom 3D Camera Rotation (YXZ)
+      this.camera.rotation.set(0, 0, 0, 'YXZ');
+      this.camera.rotation.y = this.yaw;
+      this.camera.rotation.x = this.pitch;
 
       // Camera horizontal forward direction in 3D
       const forwardDir = new THREE.Vector3();
@@ -405,6 +442,69 @@ export class Doom3DRenderer {
         }
       }
 
+      // Calculate local player speed with items & dash
+      let speed = SERVER_CONFIG.PLAYER_BASE_SPEED;
+      for (const itemId of localPlayer.items) {
+        const item = DEADLOCK_ITEMS.find((i) => i.id === itemId);
+        if (item?.stats.moveSpeedPct) {
+          speed *= 1 + item.stats.moveSpeedPct / 100;
+        }
+      }
+      if (localPlayer.isDashing) {
+        speed = SERVER_CONFIG.PLAYER_DASH_SPEED;
+      }
+
+      // Client-Side Prediction: Advance locally every single frame (60/144 FPS)
+      if (!localPlayer.downed) {
+        const deltaX = moveX * speed * dtSec;
+        const deltaY = moveY * speed * dtSec;
+        const walls = this.getEffectiveWalls();
+        const resolved = resolveMovement(
+          this.predictedX,
+          this.predictedZ,
+          deltaX,
+          deltaY,
+          SERVER_CONFIG.PLAYER_RADIUS,
+          walls
+        );
+        this.predictedX = resolved.x;
+        this.predictedZ = resolved.y;
+
+        // Smooth reconciliation with server snapshot (eliminates network stutter)
+        const errX = localPlayer.x - this.predictedX;
+        const errZ = localPlayer.y - this.predictedZ;
+        const distSq = errX * errX + errZ * errZ;
+
+        if (distSq > 100 * 100) {
+          // Large desync or teleport / respawn -> snap immediately
+          this.predictedX = localPlayer.x;
+          this.predictedZ = localPlayer.y;
+        } else if (distSq > 0.04) {
+          // Smoothly converge prediction towards server state
+          const blend = Math.min(1, dtSec * 15);
+          this.predictedX += errX * blend;
+          this.predictedZ += errZ * blend;
+        }
+      } else {
+        this.predictedX = localPlayer.x;
+        this.predictedZ = localPlayer.y;
+      }
+
+      // Head bobbing for realistic Doom feeling
+      const eyeHeight = localPlayer.downed ? 12 : 34;
+      let bobY = 0;
+      if (isMoving && !localPlayer.downed) {
+        this.headBobTimer += dtSec * 10;
+        bobY = Math.sin(this.headBobTimer) * 1.5;
+      } else {
+        this.headBobTimer = 0;
+      }
+
+      // Position camera at predicted coordinates
+      this.camera.position.x = this.predictedX;
+      this.camera.position.z = this.predictedZ;
+      this.camera.position.y = eyeHeight + bobY;
+
       // Calculate server yaw: direction the camera is facing on the 2D server map plane
       const serverYaw = Math.atan2(forwardDir.z, forwardDir.x);
 
@@ -418,22 +518,22 @@ export class Doom3DRenderer {
         moveX,
         moveY,
         yaw: serverYaw,
-        mouseX: localPlayer.x + Math.cos(serverYaw) * 100,
-        mouseY: localPlayer.y + Math.sin(serverYaw) * 100,
+        mouseX: this.predictedX + Math.cos(serverYaw) * 100,
+        mouseY: this.predictedZ + Math.sin(serverYaw) * 100,
         shoot: this.isMouseDown && this.isPointerLocked && !this.shopModal.isOpen
       });
 
       // Update First-Person Weapon Bob & Recoil
       this.weaponRenderer.update(dtMs, isMoving, localPlayer.weaponId, localPlayer.reloadProgress);
 
-      // Check interaction prompts
-      this.updatePrompts(localPlayer);
+      // Check interaction prompts using predicted position
+      this.updatePrompts(this.predictedX, this.predictedZ, localPlayer);
     }
 
-    // 2. Render 3D Zombie Billboards
+    // 2. Render 3D Zombie Billboards & Entities with smooth interpolation
     if (snapshot) {
-      this.updateZombies(snapshot.zombies);
-      this.updateTeammates(snapshot.players);
+      this.updateZombies(snapshot.zombies, dtSec);
+      this.updateTeammates(snapshot.players, dtSec);
       this.updatePowerups(snapshot.powerUps);
       this.update3DTracers(snapshot);
     }
@@ -459,7 +559,7 @@ export class Doom3DRenderer {
     requestAnimationFrame((t) => this.renderLoop(t));
   }
 
-  private updateZombies(zombies: ZombieState[]): void {
+  private updateZombies(zombies: ZombieState[], dtSec: number): void {
     const activeIds = new Set(zombies.map((z) => z.id));
 
     // Remove dead
@@ -475,20 +575,35 @@ export class Doom3DRenderer {
 
     for (const z of zombies) {
       let sprite = this.zombieSprites.get(z.id);
+      const h = z.type === 'brute' ? 32 : 24;
+
       if (!sprite) {
         const tex = this.textures.zombies[z.type]?.[0] || this.textures.zombies.walker[0];
         const mat = new THREE.SpriteMaterial({ map: tex });
         sprite = new THREE.Sprite(mat);
         const w = z.type === 'brute' ? 50 : 36;
-        const h = z.type === 'brute' ? 65 : 48;
-        sprite.scale.set(w, h, 1);
+        const spriteH = z.type === 'brute' ? 65 : 48;
+        sprite.scale.set(w, spriteH, 1);
+        sprite.position.set(z.x, h, z.y);
         this.scene.add(sprite);
         this.zombieSprites.set(z.id, sprite);
-      }
+      } else {
+        // Smoothly interpolate zombie position to eliminate network stepping
+        const targetX = z.x;
+        const targetZ = z.y;
+        const dx = targetX - sprite.position.x;
+        const dz = targetZ - sprite.position.z;
 
-      // Position in 3D: (X, half-height, Z)
-      const h = z.type === 'brute' ? 32 : 24;
-      sprite.position.set(z.x, h, z.y);
+        if (dx * dx + dz * dz > 120 * 120) {
+          sprite.position.x = targetX;
+          sprite.position.z = targetZ;
+        } else {
+          const lerpRate = Math.min(1, dtSec * 18);
+          sprite.position.x += dx * lerpRate;
+          sprite.position.z += dz * lerpRate;
+        }
+        sprite.position.y = h;
+      }
 
       // Texture animation & hit flash
       const texList = this.textures.zombies[z.type] || this.textures.zombies.walker;
@@ -500,7 +615,7 @@ export class Doom3DRenderer {
     }
   }
 
-  private updateTeammates(players: PlayerState[]): void {
+  private updateTeammates(players: PlayerState[], dtSec: number): void {
     const activeIds = new Set(players.filter((p) => p.id !== networkManager.playerId).map((p) => p.id));
 
     for (const [id, sprite] of this.playerSprites) {
@@ -514,16 +629,29 @@ export class Doom3DRenderer {
       if (p.id === networkManager.playerId) continue;
 
       let sprite = this.playerSprites.get(p.id);
+      const targetY = p.downed ? 10 : 22;
+
       if (!sprite) {
         const tex = this.textures.zombies.walker[0]; // teammate billboard
         const mat = new THREE.SpriteMaterial({ map: tex, color: 0x38bdf8 });
         sprite = new THREE.Sprite(mat);
         sprite.scale.set(32, 44, 1);
+        sprite.position.set(p.x, targetY, p.y);
         this.scene.add(sprite);
         this.playerSprites.set(p.id, sprite);
+      } else {
+        const dx = p.x - sprite.position.x;
+        const dz = p.y - sprite.position.z;
+        if (dx * dx + dz * dz > 120 * 120) {
+          sprite.position.x = p.x;
+          sprite.position.z = p.y;
+        } else {
+          const lerpRate = Math.min(1, dtSec * 18);
+          sprite.position.x += dx * lerpRate;
+          sprite.position.z += dz * lerpRate;
+        }
+        sprite.position.y = targetY;
       }
-
-      sprite.position.set(p.x, p.downed ? 10 : 22, p.y);
     }
   }
 
@@ -584,7 +712,7 @@ export class Doom3DRenderer {
     }
   }
 
-  private updatePrompts(player: PlayerState): void {
+  private updatePrompts(px: number, py: number, player: PlayerState): void {
     if (player.downed) {
       this.hud.setPrompt(null);
       return;
@@ -592,8 +720,8 @@ export class Doom3DRenderer {
 
     // Check doors
     for (const door of this.mapData.initialDoors) {
-      const dx = door.x + door.width / 2 - player.x;
-      const dy = door.y + door.height / 2 - player.y;
+      const dx = door.x + door.width / 2 - px;
+      const dy = door.y + door.height / 2 - py;
       if (dx * dx + dy * dy <= 90 * 90) {
         this.hud.setPrompt(`[E] OTWÓRZ DRZWI (${door.cost} PKT)`);
         return;
@@ -602,8 +730,8 @@ export class Doom3DRenderer {
 
     // Check Wall Buys
     for (const wb of this.mapData.wallBuys) {
-      const dx = wb.x - player.x;
-      const dy = wb.y - player.y;
+      const dx = wb.x - px;
+      const dy = wb.y - py;
       if (dx * dx + dy * dy <= 80 * 80) {
         const wep = WEAPONS[wb.weaponId];
         if (player.weaponId === wb.weaponId) {
@@ -617,8 +745,8 @@ export class Doom3DRenderer {
 
     // Check Mystery Box
     const mb = this.mapData.mysteryBox;
-    const mbDx = mb.x - player.x;
-    const mbDy = mb.y - player.y;
+    const mbDx = mb.x - px;
+    const mbDy = mb.y - py;
     if (mbDx * mbDx + mbDy * mbDy <= 90 * 90) {
       this.hud.setPrompt(`[E] LOSUJ MYSTERY BOX (${mb.cost} PKT)`);
       return;

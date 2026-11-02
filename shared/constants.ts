@@ -1,6 +1,6 @@
 export const SERVER_CONFIG = {
-  TICK_RATE: 30, // 30 updates per second
-  TICK_INTERVAL_MS: 1000 / 30,
+  TICK_RATE: 40, // 40 updates per second (25ms)
+  TICK_INTERVAL_MS: 1000 / 40,
   PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 8080,
   MAX_PLAYERS_PER_ROOM: 4,
   PLAYER_BASE_SPEED: 210,
