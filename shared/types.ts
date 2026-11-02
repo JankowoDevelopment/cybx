@@ -66,7 +66,9 @@ export interface PlayerState {
   grenadesRemaining: number;
   kills: number;
   deaths: number;
+  roundWins: number;
   headshots: number;
+  cards: string[]; // ROUNDS card IDs
   items: string[]; // item IDs
   color: string;
 }
@@ -93,6 +95,8 @@ export interface BulletState {
   shooterId: string;
   weaponId: WeaponType;
   pierceLeft: number;
+  bouncesLeft: number;
+  bulletRadius: number;
   damage: number;
   isTesla?: boolean;
   isFrost?: boolean;
@@ -148,7 +152,7 @@ export interface MysteryBoxState {
   spinTimer: number;
 }
 
-export type RoundState = 'waiting' | 'active' | 'intermission' | 'gameover';
+export type RoundState = 'waiting' | 'active' | 'card_pick' | 'round_over' | 'gameover';
 
 export interface ActivePowerUps {
   instaKill: number; // remaining ms
@@ -165,8 +169,12 @@ export interface GameSnapshot {
   grenades: GrenadeState[];
   powerUps: PowerUpState[];
   doors: DoorState[];
-  mysteryBox: MysteryBoxState;
+  mysteryBox?: MysteryBoxState;
   activePowerUps: ActivePowerUps;
+  cardPickerId: string | null;
+  cardPickerName: string | null;
+  offeredCards: string[];
+  roundWinnerName: string | null;
 }
 
 // Network packets
@@ -179,6 +187,7 @@ export type ClientPacket =
   | { type: 'reload' }
   | { type: 'interact' }
   | { type: 'buy_item'; itemId: string }
+  | { type: 'pick_card'; cardId: string }
   | { type: 'restart_game' };
 
 export type ServerPacket =
@@ -186,7 +195,7 @@ export type ServerPacket =
   | { type: 'lobby_update'; players: { id: string; name: string; isHost: boolean }[]; canStart: boolean }
   | { type: 'game_init'; map: any; wallBuys: WallBuyState[]; doors: DoorState[]; mysteryBox: MysteryBoxState }
   | { type: 'snapshot'; state: GameSnapshot }
-  | { type: 'sound_event'; sound: 'shoot' | 'reload' | 'zombie_groan' | 'zombie_death' | 'hit' | 'round_start' | 'round_end' | 'buy' | 'nuke' | 'mystery_box' | 'downed' | 'revived' | 'dash' | 'explosion'; weapon?: WeaponType }
+  | { type: 'sound_event'; sound: 'shoot' | 'reload' | 'zombie_groan' | 'zombie_death' | 'hit' | 'round_start' | 'round_end' | 'buy' | 'nuke' | 'mystery_box' | 'downed' | 'revived' | 'dash' | 'explosion'; weapon?: WeaponType; shooterId?: string }
   | { type: 'game_event'; event: string; text?: string; color?: string }
   | { type: 'hit_event'; x: number; y: number; damage: number; isKill: boolean; isWall: boolean; shooterId: string }
   | { type: 'error'; message: string };

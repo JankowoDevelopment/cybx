@@ -10,6 +10,7 @@ import { createDoomTextures, DoomTextureSet } from './doomTextures.js';
 import { DoomWeaponRenderer } from './doomWeapon.js';
 import { DoomHud } from './doomHud.js';
 import { ShopModal } from '../ui/shopModal.js';
+import { CardDraftModal } from '../ui/cardDraftModal.js';
 import { soundSystem } from '../audio/soundSystem.js';
 
 export class Doom3DRenderer {
@@ -22,6 +23,7 @@ export class Doom3DRenderer {
   private weaponRenderer: DoomWeaponRenderer;
   private hud: DoomHud;
   private shopModal: ShopModal;
+  private cardDraftModal: CardDraftModal;
 
   // Pointer Lock & Camera Angles
   private yaw: number = 0;
@@ -45,12 +47,11 @@ export class Doom3DRenderer {
   private playerSprites: Map<string, THREE.Sprite> = new Map();
   private playerHpBars: Map<string, { sprite: THREE.Sprite; canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture }> = new Map();
   private powerupSprites: Map<string, THREE.Sprite> = new Map();
-  private mysteryBoxMesh: THREE.Mesh | null = null;
-  private mysteryBoxBeam: THREE.Mesh | null = null;
 
   // Bullet Tracers
-  private activeTracers: { mesh: THREE.Line; dieTime: number }[] = [];
+  private activeTracers: { mesh: THREE.Object3D; dieTime: number }[] = [];
   private damageTexts: { sprite: THREE.Sprite; startY: number; startTime: number; duration: number }[] = [];
+  private bulletSpriteTex: THREE.Texture | null = null;
 
   // Map and game state
   private mapData: MapData;
@@ -78,6 +79,7 @@ export class Doom3DRenderer {
     this.weaponRenderer = new DoomWeaponRenderer();
     this.hud = new DoomHud();
     this.shopModal = new ShopModal();
+    this.cardDraftModal = new CardDraftModal();
 
     // Map initialization
     const initData = networkManager.lastGameInitPacket;
@@ -183,26 +185,6 @@ export class Doom3DRenderer {
       this.scene.add(mesh);
       this.doorMeshes.set(door.id, mesh);
     }
-
-    // 5. Mystery Box & Light Column
-    const mb = this.mapData.mysteryBox;
-    const mbGeo = new THREE.BoxGeometry(64, 40, 40);
-    const mbMat = new THREE.MeshBasicMaterial({ map: this.textures.mysteryBox });
-    this.mysteryBoxMesh = new THREE.Mesh(mbGeo, mbMat);
-    this.mysteryBoxMesh.position.set(mb.x, 20, mb.y);
-    this.scene.add(this.mysteryBoxMesh);
-
-    // Light Beam
-    const beamGeo = new THREE.CylinderGeometry(14, 14, wallHeight, 16, 1, true);
-    const beamMat = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
-      transparent: true,
-      opacity: 0.35,
-      side: THREE.DoubleSide
-    });
-    this.mysteryBoxBeam = new THREE.Mesh(beamGeo, beamMat);
-    this.mysteryBoxBeam.position.set(mb.x, wallHeight / 2, mb.y);
-    this.scene.add(this.mysteryBoxBeam);
   }
 
   private setupEvents(): void {
@@ -216,7 +198,7 @@ export class Doom3DRenderer {
 
     // Pointer Lock on Click
     const lockHandler = () => {
-      if (!this.shopModal.isOpen && !this.isPointerLocked) {
+      if (!this.shopModal.isOpen && !this.cardDraftModal.isOpen && !this.isPointerLocked) {
         document.body.requestPointerLock();
       }
     };
@@ -241,7 +223,7 @@ export class Doom3DRenderer {
 
     // Mouse Shooting
     document.addEventListener('mousedown', (e) => {
-      if (e.button === 0 && this.isPointerLocked && !this.shopModal.isOpen) {
+      if (e.button === 0 && this.isPointerLocked && !this.shopModal.isOpen && !this.cardDraftModal.isOpen) {
         this.isMouseDown = true;
       }
     });
@@ -303,9 +285,18 @@ export class Doom3DRenderer {
         }
       }
 
-      // Update Mystery Box spin
-      if (this.mysteryBoxBeam) {
-        this.mysteryBoxBeam.visible = snapshot.mysteryBox.isSpinning;
+      // ROUNDS Card Draft modal state management
+      if (snapshot.roundState === 'card_pick') {
+        if (!this.cardDraftModal.isOpen && snapshot.offeredCards && snapshot.offeredCards.length > 0) {
+          const isPicker = snapshot.cardPickerId === networkManager.playerId;
+          this.cardDraftModal.showDraft(snapshot.offeredCards, isPicker, snapshot.cardPickerName || 'PRZECIWNIKA');
+          this.hud.setShopOpen(true);
+        }
+      } else if (snapshot.roundState === 'active') {
+        if (this.cardDraftModal.isOpen) {
+          this.cardDraftModal.hide();
+          this.hud.setShopOpen(false);
+        }
       }
 
       // Update local player in HUD & shop
@@ -316,11 +307,12 @@ export class Doom3DRenderer {
       }
     };
 
-    networkManager.onSoundEvent = (sound, weapon) => {
+    networkManager.onSoundEvent = (sound, weapon, shooterId) => {
       soundSystem.playSound(sound, weapon);
-      if (sound === 'shoot') {
+      // Only trigger gun animation if shooter is local player (prevents enemy shots from kicking local weapon!)
+      if (sound === 'shoot' && (!shooterId || shooterId === networkManager.playerId)) {
         this.weaponRenderer.triggerShoot();
-      } else if (sound === 'reload') {
+      } else if (sound === 'reload' && (!shooterId || shooterId === networkManager.playerId)) {
         this.weaponRenderer.triggerReload();
       }
     };
@@ -529,7 +521,7 @@ export class Doom3DRenderer {
         yaw: serverYaw,
         mouseX: this.predictedX + Math.cos(serverYaw) * 100,
         mouseY: this.predictedZ + Math.sin(serverYaw) * 100,
-        shoot: this.isMouseDown && this.isPointerLocked && !this.shopModal.isOpen && !localPlayer.isDead
+        shoot: this.isMouseDown && this.isPointerLocked && !this.shopModal.isOpen && !this.cardDraftModal.isOpen && !localPlayer.isDead
       });
 
       // Update First-Person Weapon Bob & Recoil
@@ -777,18 +769,42 @@ export class Doom3DRenderer {
     }
   }
 
+  private getBulletTexture(): THREE.Texture {
+    if (!this.bulletSpriteTex) {
+      const c = document.createElement('canvas');
+      c.width = 64;
+      c.height = 64;
+      const ctx = c.getContext('2d')!;
+      const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+      grad.addColorStop(0, '#ffffff');
+      grad.addColorStop(0.4, 'rgba(255, 230, 150, 0.9)');
+      grad.addColorStop(1, 'rgba(255, 120, 20, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(32, 32, 30, 0, Math.PI * 2);
+      ctx.fill();
+      this.bulletSpriteTex = new THREE.CanvasTexture(c);
+    }
+    return this.bulletSpriteTex;
+  }
+
   private update3DTracers(snapshot: GameSnapshot): void {
-    // Clear old line tracers
+    // Clear old line & sprite tracers
     const now = performance.now();
     for (let i = this.activeTracers.length - 1; i >= 0; i--) {
       if (now >= this.activeTracers[i].dieTime) {
         this.scene.remove(this.activeTracers[i].mesh);
-        this.activeTracers[i].mesh.geometry.dispose();
+        if ('geometry' in this.activeTracers[i].mesh) {
+          (this.activeTracers[i].mesh as any).geometry.dispose();
+        }
+        if ('material' in this.activeTracers[i].mesh) {
+          (this.activeTracers[i].mesh as any).material.dispose();
+        }
         this.activeTracers.splice(i, 1);
       }
     }
 
-    // Render 3D neon tracers for active bullets
+    // Render 3D neon tracers & bullet heads for active bullets
     for (const b of snapshot.bullets) {
       const len = 0.035;
       const tailX = b.x - b.vx * len;
@@ -800,11 +816,27 @@ export class Doom3DRenderer {
       let col = 0xf59e0b;
       if (b.weaponId === 'raygun') col = 0x22c55e;
       if (b.isTesla) col = 0x38bdf8;
+      if (b.bouncesLeft > 0) col = 0xec4899; // Bouncy bullets glow hot pink!
 
       const mat = new THREE.LineBasicMaterial({ color: col, linewidth: 2 });
       const line = new THREE.Line(geo, mat);
       this.scene.add(line);
       this.activeTracers.push({ mesh: line, dieTime: now + 50 });
+
+      // Glowing bullet head (bullet size scaled!)
+      const radius = b.bulletRadius || 3;
+      const spriteSize = Math.max(8, radius * 3.5);
+      const sMat = new THREE.SpriteMaterial({
+        map: this.getBulletTexture(),
+        color: col,
+        blending: THREE.AdditiveBlending,
+        transparent: true
+      });
+      const sprite = new THREE.Sprite(sMat);
+      sprite.scale.set(spriteSize, spriteSize, 1);
+      sprite.position.set(b.x, 22, b.y);
+      this.scene.add(sprite);
+      this.activeTracers.push({ mesh: sprite, dieTime: now + 50 });
     }
   }
 
@@ -839,15 +871,6 @@ export class Doom3DRenderer {
       }
     }
 
-    // Check Mystery Box
-    const mb = this.mapData.mysteryBox;
-    const mbDx = mb.x - px;
-    const mbDy = mb.y - py;
-    if (mbDx * mbDx + mbDy * mbDy <= 90 * 90) {
-      this.hud.setPrompt(`[E] LOSUJ MYSTERY BOX (${mb.cost} PKT)`);
-      return;
-    }
-
     this.hud.setPrompt(null);
   }
 
@@ -860,6 +883,8 @@ export class Doom3DRenderer {
     this.playerHpBars.clear();
     this.weaponRenderer.destroy();
     this.hud.destroy();
+    this.shopModal.destroy();
+    this.cardDraftModal.destroy();
     this.renderer.dispose();
   }
 }

@@ -25,11 +25,12 @@ export class Room {
     this.simulation = new GameSimulation();
 
     // Wire simulation events
-    this.simulation.onSoundEvent = (sound, weapon) => {
+    this.simulation.onSoundEvent = (sound, weapon, shooterId) => {
       this.broadcast({
         type: 'sound_event',
         sound,
-        weapon
+        weapon,
+        shooterId
       });
     };
 
@@ -158,6 +159,10 @@ export class Room {
         this.simulation.buyDeadlockItem(clientId, packet.itemId);
         break;
 
+      case 'pick_card':
+        this.simulation.pickRoundsCard(clientId, packet.cardId);
+        break;
+
       case 'restart_game':
         if (client.isHost && this.simulation.roundState === 'gameover') {
           this.restartGame();
@@ -188,8 +193,8 @@ export class Room {
     this.simulation = new GameSimulation();
 
     // Re-wire events
-    this.simulation.onSoundEvent = (sound, weapon) => {
-      this.broadcast({ type: 'sound_event', sound, weapon });
+    this.simulation.onSoundEvent = (sound, weapon, shooterId) => {
+      this.broadcast({ type: 'sound_event', sound, weapon, shooterId });
     };
     this.simulation.onGameEvent = (event, text, color) => {
       this.broadcast({ type: 'game_event', event, text, color });

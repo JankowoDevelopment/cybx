@@ -30,7 +30,7 @@ export interface MapData {
   walls: WallRect[];
   initialDoors: DoorState[];
   wallBuys: WallBuyState[];
-  mysteryBox: MysteryBoxState;
+  mysteryBox?: MysteryBoxState;
   playerSpawns: { x: number; y: number }[];
   zombieSpawners: ZombieSpawner[];
   rooms: RoomZone[];
@@ -109,15 +109,6 @@ export function createDefaultMap(): MapData {
       { id: 'wb_sg_north', x: 1200, y: 550, weaponId: 'shotgun', cost: 0, ammoCost: 0 },
       { id: 'wb_th_south', x: 1200, y: 1850, weaponId: 'thompson', cost: 0, ammoCost: 0 }
     ],
-
-    mysteryBox: {
-      x: 1200,
-      y: 1200,
-      cost: 0,
-      isSpinning: false,
-      spinWeaponId: null,
-      spinTimer: 0
-    },
 
     zombieSpawners: []
   };

@@ -14,6 +14,7 @@ import {
 import { createDefaultMap, MapData, WallRect } from '../../shared/map.js';
 import { WEAPONS } from '../../shared/weapons.js';
 import { DEADLOCK_ITEMS } from '../../shared/items.js';
+import { ROUNDS_CARDS, RoundsCardDef } from '../../shared/cards.js';
 import { SERVER_CONFIG } from '../../shared/constants.js';
 import { resolveWallCollisions, resolveMovement, circleOverlapsRect, lineRectIntersection, lineSegmentCircleIntersection } from './Collision.js';
 import { updateZombie } from './ZombieAI.js';
@@ -44,8 +45,12 @@ export class GameSimulation {
   public mysteryBox: MysteryBoxState;
 
   public round: number = 1;
-  public roundState: 'waiting' | 'active' | 'intermission' | 'gameover' = 'waiting';
+  public roundState: 'waiting' | 'active' | 'card_pick' | 'round_over' | 'gameover' = 'waiting';
   public roundTimer: number = 0; // ms
+  public cardPickerId: string | null = null;
+  public cardPickerName: string | null = null;
+  public offeredCards: string[] = [];
+  public roundWinnerName: string | null = null;
   public zombiesToSpawnThisRound: number = 0;
   public zombiesSpawnedThisRound: number = 0;
   public zombieSpawnCooldown: number = 0;
@@ -59,7 +64,7 @@ export class GameSimulation {
   private zombieLastAttack: Map<string, number> = new Map();
   private nextId: number = 1;
 
-  public onSoundEvent?: (sound: any, weapon?: WeaponType) => void;
+  public onSoundEvent?: (sound: any, weapon?: WeaponType, shooterId?: string) => void;
   public onGameEvent?: (event: string, text?: string, color?: string) => void;
   public onHitEvent?: (x: number, y: number, damage: number, isKill: boolean, isWall: boolean, shooterId: string) => void;
 
@@ -100,7 +105,9 @@ export class GameSimulation {
       grenadesRemaining: 0, // Disabled as requested
       kills: 0,
       deaths: 0,
+      roundWins: 0,
       headshots: 0,
+      cards: [],
       items: [],
       color
     };
@@ -133,19 +140,97 @@ export class GameSimulation {
     this.round = 1;
     this.roundState = 'active';
     this.roundTimer = 0;
-    this.startRound(1);
-    this.onGameEvent?.('round_start', `RUNDA 1 ROZPOCZĘTA!`, '#ef4444');
+    this.cardPickerId = null;
+    this.cardPickerName = null;
+    this.offeredCards = [];
+
+    // Reset stats & respawn players at arena sides
+    const playerIds = Array.from(this.players.keys());
+    for (let i = 0; i < playerIds.length; i++) {
+      const p = this.players.get(playerIds[i])!;
+      p.isDead = false;
+      p.cards = [];
+      p.roundWins = 0;
+      this.recalculatePlayerStats(p);
+      p.hp = p.maxHp;
+      const wep = WEAPONS[p.weaponId];
+      p.ammoClip = wep.clipSize;
+      p.ammoReserve = wep.maxReserve;
+
+      const spawn = this.map.playerSpawns[i % this.map.playerSpawns.length];
+      p.x = spawn.x;
+      p.y = spawn.y;
+    }
+
+    this.onGameEvent?.('round_start', `⚔ ROUNDS 1v1v1v1: RUNDA 1 ROZPOCZĘTA!`, '#ef4444');
     this.onSoundEvent?.('round_start');
   }
 
-  private startRound(roundNum: number): void {
-    this.round = roundNum;
+  public recalculatePlayerStats(player: PlayerState): void {
+    let maxHp = SERVER_CONFIG.BASE_PLAYER_HP;
+
+    for (const cardId of (player.cards || [])) {
+      const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+      if (card?.stats.maxHpBonus) {
+        maxHp += card.stats.maxHpBonus;
+      }
+    }
+    player.maxHp = Math.max(25, maxHp);
+  }
+
+  public drawRandomCards(count: number, currentCards: string[] = []): string[] {
+    const available = ROUNDS_CARDS.map((c) => c.id);
+    const shuffled = [...available].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, count);
+  }
+
+  public pickRoundsCard(playerId: string, cardId: string): void {
+    if (this.roundState !== 'card_pick') return;
+    if (this.cardPickerId !== playerId) return;
+
+    const player = this.players.get(playerId);
+    if (!player) return;
+
+    if (!player.cards) player.cards = [];
+    player.cards.push(cardId);
+
+    const cardDef = ROUNDS_CARDS.find((c) => c.id === cardId);
+    const cardName = cardDef ? cardDef.name : cardId;
+    this.onGameEvent?.('card_picked', `🃏 ${player.name} wybrał kartę: [${cardName}]!`, '#fbbf24');
+    this.onSoundEvent?.('buy');
+
+    // Immediately start next round with upgraded stats
+    this.startNextRound();
+  }
+
+  public startNextRound(): void {
+    this.round++;
     this.roundState = 'active';
-    this.zombiesToSpawnThisRound = Math.floor(
-      SERVER_CONFIG.BASE_ZOMBIES_ROUND_1 + roundNum * 5 * Math.max(1, this.players.size)
-    );
-    this.zombiesSpawnedThisRound = 0;
-    this.zombieSpawnCooldown = 1000;
+    this.roundTimer = 0;
+    this.cardPickerId = null;
+    this.cardPickerName = null;
+    this.offeredCards = [];
+    this.bullets = [];
+
+    // Respawn all players on their side with full HP and fresh magazines
+    const playerIds = Array.from(this.players.keys());
+    for (let i = 0; i < playerIds.length; i++) {
+      const p = this.players.get(playerIds[i])!;
+      p.isDead = false;
+      this.recalculatePlayerStats(p);
+      p.hp = p.maxHp;
+      const wep = WEAPONS[p.weaponId];
+      p.ammoClip = wep.clipSize;
+      p.ammoReserve = wep.maxReserve;
+      p.isReloading = false;
+
+      const spawn = this.map.playerSpawns[i % this.map.playerSpawns.length];
+      p.x = spawn.x;
+      p.y = spawn.y;
+    }
+
+    this.onGameEvent?.('round_start', `⚔ RUNDA ${this.round} ROZPOCZĘTA!`, '#ef4444');
+    this.onSoundEvent?.('round_start');
   }
 
   public getEffectiveWalls(): WallRect[] {
@@ -358,23 +443,7 @@ export class GameSimulation {
     const now = Date.now();
 
     for (const [_, player] of this.players) {
-      // Dead player respawn timer
-      if (player.isDead) {
-        player.respawnTimer -= dtMs;
-        if (player.respawnTimer <= 0) {
-          player.isDead = false;
-          player.hp = player.maxHp;
-          const wep = WEAPONS[player.weaponId];
-          player.ammoClip = wep.clipSize;
-          player.ammoReserve = wep.maxReserve;
-
-          const spawn = this.map.playerSpawns[Math.floor(Math.random() * this.map.playerSpawns.length)];
-          player.x = spawn.x;
-          player.y = spawn.y;
-          this.onGameEvent?.('respawn', `⚡ ${player.name} powrócił na arenę!`, '#38bdf8');
-        }
-        continue;
-      }
+      if (player.isDead) continue;
 
       const input = this.playerInputs.get(player.id);
 
@@ -383,8 +452,12 @@ export class GameSimulation {
         player.dashCooldownRemaining = Math.max(0, player.dashCooldownRemaining - dtMs);
       }
 
-      // Passive HP Regen (from Deadlock items)
+      // Passive HP Regen (from cards and items)
       let regenPerSec = 0;
+      for (const cardId of (player.cards || [])) {
+        const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+        if (card?.stats.hpRegen) regenPerSec += card.stats.hpRegen;
+      }
       for (const itemId of player.items) {
         const item = DEADLOCK_ITEMS.find((i) => i.id === itemId);
         if (item?.stats.hpRegen) regenPerSec += item.stats.hpRegen;
@@ -395,6 +468,12 @@ export class GameSimulation {
 
       // Movement Speed
       let speed = SERVER_CONFIG.PLAYER_BASE_SPEED;
+      for (const cardId of (player.cards || [])) {
+        const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+        if (card?.stats.moveSpeedPct) {
+          speed *= 1 + card.stats.moveSpeedPct / 100;
+        }
+      }
       for (const itemId of player.items) {
         const item = DEADLOCK_ITEMS.find((i) => i.id === itemId);
         if (item?.stats.moveSpeedPct) {
@@ -405,7 +484,7 @@ export class GameSimulation {
         speed = SERVER_CONFIG.PLAYER_DASH_SPEED;
       }
 
-      if (input) {
+      if (input && this.roundState === 'active') {
         let moveX = 0;
         let moveY = 0;
 
@@ -455,9 +534,23 @@ export class GameSimulation {
       // Reload progress
       if (player.isReloading) {
         const wep = WEAPONS[player.weaponId];
-        player.reloadProgress += dtMs / wep.reloadTime;
+        let reloadTime = wep.reloadTime;
+        for (const cardId of (player.cards || [])) {
+          const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+          if (card?.stats.reloadTimeReductionPct) {
+            reloadTime *= Math.max(0.2, 1 - card.stats.reloadTimeReductionPct / 100);
+          }
+        }
+
+        player.reloadProgress += dtMs / reloadTime;
         if (player.reloadProgress >= 1) {
-          const needed = wep.clipSize - player.ammoClip;
+          let clipBonus = 0;
+          for (const cardId of (player.cards || [])) {
+            const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+            if (card?.stats.bonusClipPct) clipBonus += card.stats.bonusClipPct;
+          }
+          const maxClip = Math.round(wep.clipSize * (1 + clipBonus / 100));
+          const needed = maxClip - player.ammoClip;
           const take = Math.min(needed, player.ammoReserve);
           player.ammoClip += take;
           player.ammoReserve -= take;
@@ -467,7 +560,7 @@ export class GameSimulation {
       }
     }
 
-    // 4. Update Bullets with Continuous Collision Detection against Walls & Enemy Players
+    // 4. Update Bullets with Continuous Collision Detection, Wall Ricochet (Bounce) & Player Hits
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const b = this.bullets[i];
       const prevX = b.x;
@@ -480,8 +573,33 @@ export class GameSimulation {
       for (const wall of walls) {
         if (lineRectIntersection(prevX, prevY, nextX, nextY, wall.x, wall.y, wall.w, wall.h)) {
           hitWall = true;
-          this.onHitEvent?.(nextX, nextY, 0, false, true, b.shooterId);
-          break;
+
+          // BOUNCE / RICOCHET MECHANIC
+          if (b.bouncesLeft > 0) {
+            b.bouncesLeft--;
+            const fromLeft = prevX <= wall.x;
+            const fromRight = prevX >= wall.x + wall.w;
+            const fromTop = prevY <= wall.y;
+            const fromBottom = prevY >= wall.y + wall.h;
+
+            if (fromLeft || fromRight) {
+              b.vx = -b.vx;
+            }
+            if (fromTop || fromBottom) {
+              b.vy = -b.vy;
+            }
+
+            b.x = prevX + b.vx * dtSec * 0.4;
+            b.y = prevY + b.vy * dtSec * 0.4;
+
+            this.onHitEvent?.(nextX, nextY, 0, false, true, b.shooterId);
+            this.onSoundEvent?.('hit');
+            hitWall = false; // Bullet bounces and survives!
+            break;
+          } else {
+            this.onHitEvent?.(nextX, nextY, 0, false, true, b.shooterId);
+            break;
+          }
         }
       }
       if (hitWall) {
@@ -492,11 +610,12 @@ export class GameSimulation {
       b.x = nextX;
       b.y = nextY;
 
-      // Continuous collision check against enemy players (1v1v1v1 PvP)
+      // Continuous collision check against enemy players (1v1v1v1 PvP + Bullet Size)
       for (const [targetId, target] of this.players) {
         if (targetId === b.shooterId) continue;
         if (target.isDead) continue;
 
+        const effectiveRadius = SERVER_CONFIG.PLAYER_RADIUS + (b.bulletRadius || 5);
         const hitResult = lineSegmentCircleIntersection(
           prevX,
           prevY,
@@ -504,12 +623,22 @@ export class GameSimulation {
           nextY,
           target.x,
           target.y,
-          SERVER_CONFIG.PLAYER_RADIUS + 4
+          effectiveRadius
         );
 
         if (hitResult.hit) {
           const shooter = this.players.get(b.shooterId);
-          const damage = b.damage;
+          let damage = b.damage;
+
+          // Target damage reduction from defensive cards
+          let reduction = 0;
+          for (const cardId of (target.cards || [])) {
+            const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+            if (card?.stats.damageReductionPct) reduction += card.stats.damageReductionPct;
+          }
+          if (reduction > 0) {
+            damage *= Math.max(0.2, 1 - reduction / 100);
+          }
 
           target.hp -= damage;
           const isKill = target.hp <= 0;
@@ -520,9 +649,9 @@ export class GameSimulation {
 
           if (shooter) {
             let lifesteal = 0;
-            for (const itemId of shooter.items) {
-              const item = DEADLOCK_ITEMS.find((it) => it.id === itemId);
-              if (item?.stats.lifestealPct) lifesteal += item.stats.lifestealPct;
+            for (const cardId of (shooter.cards || [])) {
+              const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+              if (card?.stats.lifestealPct) lifesteal += card.stats.lifestealPct;
             }
             if (lifesteal > 0 && !shooter.isDead) {
               shooter.hp = Math.min(shooter.maxHp, shooter.hp + (damage * lifesteal) / 100);
@@ -532,15 +661,23 @@ export class GameSimulation {
           if (isKill) {
             target.hp = 0;
             target.isDead = true;
-            target.respawnTimer = 3000;
             target.deaths++;
 
             if (shooter) {
               shooter.kills++;
+              shooter.roundWins = (shooter.roundWins || 0) + 1;
               shooter.points += 100;
+              this.roundWinnerName = shooter.name;
               this.onSoundEvent?.('zombie_death');
-              this.onGameEvent?.('kill', `💥 ${shooter.name} zabił ${target.name}!`, '#ef4444');
+              this.onGameEvent?.('kill', `💥 ${shooter.name} WYGRAŁ RUNDĘ ${this.round}!`, '#22c55e');
             }
+
+            // ROUNDS Format: The player who LOST chooses 1 card out of 3!
+            this.roundState = 'card_pick';
+            this.cardPickerId = target.id;
+            this.cardPickerName = target.name;
+            this.offeredCards = this.drawRandomCards(3, target.cards);
+            this.roundTimer = 15000;
           }
 
           b.pierceLeft--;
@@ -585,12 +722,12 @@ export class GameSimulation {
     const weapon = WEAPONS[player.weaponId];
     const lastShot = this.playerLastShot.get(player.id) || 0;
 
-    // Fire rate modifier
+    // Fire rate modifier from cards & items
     let fireInterval = weapon.fireRate;
-    for (const itemId of player.items) {
-      const item = DEADLOCK_ITEMS.find((it) => it.id === itemId);
-      if (item?.stats.bonusFireRatePct) {
-        fireInterval /= 1 + item.stats.bonusFireRatePct / 100;
+    for (const cardId of (player.cards || [])) {
+      const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+      if (card?.stats.bonusFireRatePct) {
+        fireInterval /= 1 + card.stats.bonusFireRatePct / 100;
       }
     }
 
@@ -602,28 +739,41 @@ export class GameSimulation {
 
     this.playerLastShot.set(player.id, now);
     player.ammoClip--;
-    this.onSoundEvent?.('shoot', player.weaponId);
 
-    // Damage bonus
+    // CRITICAL FIX: Send player.id so other clients know WHO fired!
+    this.onSoundEvent?.('shoot', player.weaponId, player.id);
+
+    // Calculate bullet stats modified by ROUNDS cards
     let damage = weapon.damage;
+    let bulletSpeed = weapon.bulletSpeed;
+    let extraPellets = 0;
+    let bounceCount = 0;
+    let bulletRadius = 5;
     let pierce = weapon.pierceCount;
+    let spread = weapon.spread;
     let hasTesla = false;
     let hasFrost = false;
 
-    for (const itemId of player.items) {
-      const item = DEADLOCK_ITEMS.find((it) => it.id === itemId);
-      if (item?.stats.bonusDamagePct) damage *= 1 + item.stats.bonusDamagePct / 100;
-      if (item?.stats.pierceBonus) pierce += item.stats.pierceBonus;
-      if (item?.stats.hasTeslaBullets && Math.random() < 0.35) hasTesla = true;
-      if (item?.stats.hasFrostBullets) hasFrost = true;
+    for (const cardId of (player.cards || [])) {
+      const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+      if (!card) continue;
+      if (card.stats.bonusDamagePct) damage *= 1 + card.stats.bonusDamagePct / 100;
+      if (card.stats.bulletSpeedPct) bulletSpeed *= 1 + card.stats.bulletSpeedPct / 100;
+      if (card.stats.extraPellets) extraPellets += card.stats.extraPellets;
+      if (card.stats.bounceCount) bounceCount += card.stats.bounceCount;
+      if (card.stats.pierceBonus) pierce += card.stats.pierceBonus;
+      if (card.stats.bulletSizePct) bulletRadius *= 1 + card.stats.bulletSizePct / 100;
+      if (card.stats.spreadModifierPct) spread *= Math.max(0.1, 1 + card.stats.spreadModifierPct / 100);
+      if (card.stats.hasTesla) hasTesla = true;
+      if (card.stats.hasFreeze) hasFrost = true;
     }
 
-    const pellets = weapon.pellets || 1;
+    const pellets = (weapon.pellets || 1) + extraPellets;
     for (let i = 0; i < pellets; i++) {
-      const spreadAngle = (Math.random() - 0.5) * weapon.spread;
+      const spreadAngle = (Math.random() - 0.5) * spread;
       const angle = player.angle + spreadAngle;
-      const vx = Math.cos(angle) * weapon.bulletSpeed;
-      const vy = Math.sin(angle) * weapon.bulletSpeed;
+      const vx = Math.cos(angle) * bulletSpeed;
+      const vy = Math.sin(angle) * bulletSpeed;
 
       this.bullets.push({
         id: `bullet_${this.nextId++}`,
@@ -634,7 +784,9 @@ export class GameSimulation {
         shooterId: player.id,
         weaponId: player.weaponId,
         pierceLeft: pierce,
-        damage,
+        bouncesLeft: bounceCount,
+        bulletRadius: Math.round(bulletRadius),
+        damage: Math.round(damage),
         isTesla: hasTesla,
         isFrost: hasFrost
       });
@@ -738,6 +890,10 @@ export class GameSimulation {
       round: this.round,
       roundState: this.roundState,
       roundTimer: this.roundTimer,
+      cardPickerId: this.cardPickerId,
+      cardPickerName: this.cardPickerName,
+      offeredCards: this.offeredCards,
+      roundWinnerName: this.roundWinnerName,
       players: Array.from(this.players.values()),
       zombies: this.zombies,
       bullets: this.bullets,

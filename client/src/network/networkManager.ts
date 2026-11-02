@@ -11,7 +11,7 @@ export class NetworkManager {
   public onLobbyUpdate?: (data: { players: { id: string; name: string; isHost: boolean }[]; canStart: boolean }) => void;
   public onGameInit?: (data: { map: any; doors: DoorState[]; wallBuys: WallBuyState[]; mysteryBox: MysteryBoxState }) => void;
   public onSnapshot?: (snapshot: GameSnapshot) => void;
-  public onSoundEvent?: (sound: string, weapon?: any) => void;
+  public onSoundEvent?: (sound: string, weapon?: any, shooterId?: string) => void;
   public onGameEvent?: (event: string, text?: string, color?: string) => void;
   public onHitEvent?: (data: { x: number; y: number; damage: number; isKill: boolean; isWall: boolean; shooterId: string }) => void;
   public onError?: (msg: string) => void;
@@ -69,7 +69,7 @@ export class NetworkManager {
         break;
 
       case 'sound_event':
-        this.onSoundEvent?.(packet.sound, packet.weapon);
+        this.onSoundEvent?.(packet.sound, packet.weapon, packet.shooterId);
         break;
 
       case 'game_event':
