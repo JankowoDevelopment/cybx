@@ -143,6 +143,14 @@ export class SettingsModal {
             </select>
           </div>
 
+          <div style="margin-bottom: 14px;">
+            <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+              <span>✨ Moc Neonów i Poświaty (Bloom)</span>
+              <b id="val-neon" style="color: #22c55e;">${s.neonIntensity}%</b>
+            </div>
+            <input type="range" id="rng-neon" min="0" max="100" step="1" value="${s.neonIntensity}" style="width: 100%; accent-color: #22c55e; cursor: pointer;" />
+          </div>
+
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
             <div>
               <div style="font-size: 14px; font-weight: 700;">Culling Obiektów za Plecami i za Ścianami</div>
@@ -249,6 +257,14 @@ export class SettingsModal {
       });
       const chkShadows = this.overlay.querySelector('#chk-shadows') as HTMLInputElement;
       if (chkShadows) chkShadows.checked = q !== 'low';
+    });
+
+    const rngNeon = this.overlay.querySelector('#rng-neon') as HTMLInputElement;
+    const valNeon = this.overlay.querySelector('#val-neon') as HTMLElement;
+    rngNeon?.addEventListener('input', () => {
+      const v = Number(rngNeon.value);
+      if (valNeon) valNeon.textContent = `${v}%`;
+      settingsManager.update({ neonIntensity: v });
     });
 
     const chkCulling = this.overlay.querySelector('#chk-culling') as HTMLInputElement;

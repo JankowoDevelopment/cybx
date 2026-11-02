@@ -141,6 +141,7 @@ export class Room {
           down: packet.down,
           left: packet.left,
           right: packet.right,
+          sprint: packet.sprint,
           mouseX: packet.mouseX,
           mouseY: packet.mouseY,
           shoot: packet.shoot,
