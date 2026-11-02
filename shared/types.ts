@@ -53,6 +53,7 @@ export interface PlayerState {
   points: number;
   downed: boolean;
   isDead: boolean;
+  killedBy?: string | null;
   respawnTimer: number; // ms left to respawn
   reviveProgress: number; // 0 to 100
   revivingTargetId: string | null;

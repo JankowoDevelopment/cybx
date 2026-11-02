@@ -3,6 +3,7 @@ import { networkManager } from '../network/networkManager.js';
 
 export class CardDraftModal {
   private container: HTMLElement;
+  private winnerBannerEl: HTMLElement;
   private titleEl: HTMLElement;
   private subtitleEl: HTMLElement;
   private cardsContainer: HTMLElement;
@@ -17,23 +18,26 @@ export class CardDraftModal {
       left: 0;
       width: 100vw;
       height: 100vh;
-      background: radial-gradient(circle at center, rgba(15, 23, 42, 0.94) 0%, rgba(5, 7, 10, 0.98) 100%);
+      background: radial-gradient(circle at center, rgba(15, 23, 42, 0.88) 0%, rgba(5, 7, 10, 0.96) 100%);
       display: none;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       z-index: 200;
       font-family: 'Chakra Petch', sans-serif;
-      backdrop-filter: blur(10px);
+      backdrop-filter: blur(12px);
       user-select: none;
     `;
 
     this.container.innerHTML = `
-      <div style="text-align: center; margin-bottom: 30px;">
-        <h1 id="draft-title" style="font-size: 44px; font-weight: 900; color: #ef4444; letter-spacing: 4px; text-shadow: 0 0 30px rgba(239,68,68,0.7); margin-bottom: 6px;">
+      <div style="text-align: center; margin-bottom: 26px;">
+        <div id="draft-winner-banner" style="display: inline-block; background: rgba(34, 197, 94, 0.18); border: 2px solid #22c55e; color: #4ade80; font-size: 20px; font-weight: 900; padding: 8px 26px; border-radius: 999px; letter-spacing: 2px; margin-bottom: 14px; box-shadow: 0 0 25px rgba(34, 197, 94, 0.35);">
+          🏆 RUNDĘ WYGRYWA: ---
+        </div>
+        <h1 id="draft-title" style="font-size: 42px; font-weight: 900; color: #ef4444; letter-spacing: 4px; text-shadow: 0 0 30px rgba(239,68,68,0.7); margin-bottom: 6px;">
           PRZEGRAŁEŚ RUNDĘ!
         </h1>
-        <p id="draft-subtitle" style="font-size: 18px; color: #fbbf24; letter-spacing: 2px; text-transform: uppercase;">
+        <p id="draft-subtitle" style="font-size: 17px; color: #fbbf24; letter-spacing: 2px; text-transform: uppercase;">
           WYBIERZ 1 ULEPSZENIE Z 3 ABY ZYSKAĆ PRZEWAGĘ
         </p>
       </div>
@@ -44,22 +48,35 @@ export class CardDraftModal {
 
     document.body.appendChild(this.container);
 
+    this.winnerBannerEl = this.container.querySelector('#draft-winner-banner')!;
     this.titleEl = this.container.querySelector('#draft-title')!;
     this.subtitleEl = this.container.querySelector('#draft-subtitle')!;
     this.cardsContainer = this.container.querySelector('#draft-cards-row')!;
   }
 
-  public showDraft(offeredCardIds: string[], isPicker: boolean, pickerName: string): void {
+  public showDraft(
+    offeredCardIds: string[],
+    isPicker: boolean,
+    pickerName: string,
+    winnerName?: string | null,
+    killedBy?: string | null
+  ): void {
     this.isOpen = true;
     this.container.style.display = 'flex';
     this.cardsContainer.innerHTML = '';
 
-    if (isPicker) {
-      this.titleEl.textContent = 'PRZEGRAŁEŚ RUNDĘ!';
-      this.titleEl.style.color = '#ef4444';
-      this.subtitleEl.textContent = 'WYBIERZ 1 KARTĘ ULEPSZENIA Z 3 ABY ZYSKAĆ PRZEWAGĘ:';
+    if (winnerName) {
+      this.winnerBannerEl.style.display = 'inline-block';
+      this.winnerBannerEl.textContent = `🏆 ZWYCIĘZCA RUNDY: ${winnerName}`;
+    } else {
+      this.winnerBannerEl.style.display = 'none';
+    }
 
-      // Unlock mouse cursor for card selection
+    if (isPicker) {
+      this.titleEl.textContent = killedBy ? `💀 ZABITY PRZEZ: ${killedBy}` : 'PRZEGRAŁEŚ RUNDĘ!';
+      this.titleEl.style.color = '#ef4444';
+      this.subtitleEl.textContent = 'TWOJA KOLEJ — WYBIERZ 1 KARTĘ ULEPSZENIA Z 3:';
+
       if (document.pointerLockElement) {
         document.exitPointerLock();
       }
@@ -72,9 +89,9 @@ export class CardDraftModal {
         this.cardsContainer.appendChild(cardEl);
       });
     } else {
-      this.titleEl.textContent = 'KONIEC RUNDY!';
-      this.titleEl.style.color = '#22c55e';
-      this.subtitleEl.textContent = `GRACZ [${pickerName}] WYBIERA KARTĘ ULEPSZENIA...`;
+      this.titleEl.textContent = killedBy ? `💀 ZABITY PRZEZ: ${killedBy}` : '👑 WYGRAŁEŚ RUNDĘ!';
+      this.titleEl.style.color = killedBy ? '#f97316' : '#22c55e';
+      this.subtitleEl.textContent = `TERAZ KARTĘ WYBIERA: [${pickerName}]...`;
 
       offeredCardIds.forEach((cardId) => {
         const cardDef = ROUNDS_CARDS.find((c) => c.id === cardId);

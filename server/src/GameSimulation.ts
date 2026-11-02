@@ -66,6 +66,7 @@ export class GameSimulation {
 
   private playerLastShot: Map<string, number> = new Map();
   private zombieLastAttack: Map<string, number> = new Map();
+  private lastExplosionBroadcastTime: number = 0;
   private nextId: number = 1;
 
   public onSoundEvent?: (sound: any, weapon?: WeaponType, shooterId?: string) => void;
@@ -154,6 +155,7 @@ export class GameSimulation {
     this.cardPickerId = null;
     this.cardPickerName = null;
     this.offeredCards = [];
+    this.roundWinnerName = null;
     this.eliminatedOrder = [];
     this.cardPickQueue = [];
 
@@ -162,6 +164,7 @@ export class GameSimulation {
     for (let i = 0; i < playerIds.length; i++) {
       const p = this.players.get(playerIds[i])!;
       p.isDead = false;
+      p.killedBy = null;
       p.cards = [];
       p.roundWins = 0;
       this.recalculatePlayerStats(p);
@@ -250,6 +253,7 @@ export class GameSimulation {
     this.cardPickerId = null;
     this.cardPickerName = null;
     this.offeredCards = [];
+    this.roundWinnerName = null;
     this.bullets = [];
     this.eliminatedOrder = [];
     this.cardPickQueue = [];
@@ -261,6 +265,7 @@ export class GameSimulation {
     for (let i = 0; i < playerIds.length; i++) {
       const p = this.players.get(playerIds[i])!;
       p.isDead = false;
+      p.killedBy = null;
       this.recalculatePlayerStats(p);
       p.hp = p.maxHp;
       const wep = WEAPONS[p.weaponId];
@@ -303,7 +308,6 @@ export class GameSimulation {
     target.deaths++;
     this.onSoundEvent?.('zombie_death');
 
-    // Zapamiętaj gracza w kolejności śmierci (pierwsza osoba, która poległa, będzie pierwsza w kolejce)
     if (!this.eliminatedOrder.includes(target.id)) {
       this.eliminatedOrder.push(target.id);
     }
@@ -311,12 +315,13 @@ export class GameSimulation {
     const deathRank = this.eliminatedOrder.length;
     const shooter = killerId ? this.players.get(killerId) : undefined;
     if (shooter && shooter.id !== target.id) {
-      this.onGameEvent?.('kill', `💀 [${target.name}] poległ jako ${deathRank}. (pokonany przez ${shooter.name})`, '#ef4444');
+      target.killedBy = shooter.name;
+      this.onGameEvent?.('kill', `🔫 ${shooter.name} ➔ 💀 ${target.name} (#${deathRank})`, '#ef4444');
     } else {
-      this.onGameEvent?.('kill', `💥 [${target.name}] poległ jako ${deathRank}. w wybuchu!`, '#ef4444');
+      target.killedBy = shooter ? `${shooter.name} (Wybuch)` : 'Wybuch';
+      this.onGameEvent?.('kill', `💥 ${target.name} wyleciał w powietrze (#${deathRank})`, '#f97316');
     }
 
-    // Sprawdź ile osób wciąż żyje w tej rundzie
     const alivePlayers = Array.from(this.players.values()).filter((p) => !p.isDead);
 
     // KARTY WYBIERAJĄ DOPIERO PO ZOSTAŃIU 1 GRACZA!
@@ -327,20 +332,27 @@ export class GameSimulation {
         winner.roundWins = (winner.roundWins || 0) + 1;
         winner.points += 100;
         this.roundWinnerName = winner.name;
-        this.onGameEvent?.('round_win', `👑 ${winner.name} ZOSTAŁ OSTATNI I WYGRAŁ RUNDĘ ${this.round}!`, '#22c55e');
+        this.onGameEvent?.('round_win', `🏆 RUNDĘ ${this.round} WYGRYWA: ${winner.name}!`, '#22c55e');
       } else {
+        this.roundWinnerName = 'REMIS';
         this.onGameEvent?.('round_tie', `⚠️ REMIS W RUNDZIE ${this.round}!`, '#f59e0b');
       }
 
-      // Osoby które umarły pierwsze, wybierają karty jako pierwsze!
       this.cardPickQueue = [...this.eliminatedOrder];
       this.advanceCardPickQueue();
     }
   }
 
   public triggerExplosion(x: number, y: number, radius: number, maxDamage: number, sourceShooterId?: string): void {
-    this.onSoundEvent?.('explosion');
-    this.onExplosionEvent?.(x, y, radius);
+    const now = Date.now();
+    // Throttle explosion network events to prevent packet floods & client freezes on multi-pellet weapons
+    if (now - this.lastExplosionBroadcastTime >= 75) {
+      this.lastExplosionBroadcastTime = now;
+      this.onSoundEvent?.('explosion');
+      this.onExplosionEvent?.(x, y, radius);
+    }
+
+    const walls = this.getEffectiveWalls();
 
     // 1. Damage & knockback players
     for (const [_, player] of this.players) {
@@ -348,14 +360,19 @@ export class GameSimulation {
       const dist = Math.hypot(player.x - x, player.y - y);
       if (dist <= radius) {
         const factor = Math.max(0.2, 1 - dist / radius);
-        const dmg = Math.round(maxDamage * factor);
+        const dmg = Math.max(1, Math.round(maxDamage * factor));
         player.hp -= dmg;
 
-        // Knockback impulse away from explosion epicenter
         const nx = (player.x - x) / (dist || 1);
         const ny = (player.y - y) / (dist || 1);
-        player.x += nx * 60 * factor;
-        player.y += ny * 60 * factor;
+        const resolved = resolveWallCollisions(
+          player.x + nx * 50 * factor,
+          player.y + ny * 50 * factor,
+          SERVER_CONFIG.PLAYER_RADIUS,
+          walls
+        );
+        player.x = resolved.x;
+        player.y = resolved.y;
 
         const isKill = player.hp <= 0;
         if (sourceShooterId) {
@@ -377,7 +394,7 @@ export class GameSimulation {
         barrel.isExploded = true;
         setTimeout(() => {
           this.triggerExplosion(barrel.x, barrel.y, 240, 130, sourceShooterId);
-        }, 90);
+        }, 95);
       }
     }
   }
@@ -896,6 +913,8 @@ export class GameSimulation {
       }
     }
 
+    fireInterval = Math.max(50, fireInterval);
+
     if (now - lastShot < fireInterval) return;
     if (player.ammoClip <= 0) {
       this.triggerReload(player.id);
@@ -935,7 +954,10 @@ export class GameSimulation {
       if (card.stats.hasFreeze) hasFrost = true;
     }
 
-    const pellets = (weapon.pellets || 1) + extraPellets;
+    const pellets = Math.min(10, (weapon.pellets || 1) + extraPellets);
+    const clampedBounce = Math.min(6, bounceCount);
+    const clampedRadius = Math.min(28, Math.round(bulletRadius));
+
     for (let i = 0; i < pellets; i++) {
       const spreadAngle = (Math.random() - 0.5) * spread;
       const angle = player.angle + spreadAngle;
@@ -951,13 +973,17 @@ export class GameSimulation {
         shooterId: player.id,
         weaponId: player.weaponId,
         pierceLeft: pierce,
-        bouncesLeft: bounceCount,
-        bulletRadius: Math.round(bulletRadius),
+        bouncesLeft: clampedBounce,
+        bulletRadius: clampedRadius,
         damage: Math.round(damage),
         explosiveRadius: explosiveRadius > 0 ? explosiveRadius : undefined,
         isTesla: hasTesla,
         isFrost: hasFrost
       });
+    }
+
+    if (this.bullets.length > 100) {
+      this.bullets.splice(0, this.bullets.length - 100);
     }
   }
 

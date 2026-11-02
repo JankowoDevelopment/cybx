@@ -7,6 +7,7 @@ export class DoomHud {
 
   private topScoreboardEl: HTMLElement;
   private myCardsEl: HTMLElement;
+  private killfeedEl: HTMLElement;
   private weaponEl: HTMLElement;
   private ammoEl: HTMLElement;
   private hpFillEl: HTMLElement;
@@ -15,6 +16,8 @@ export class DoomHud {
   private promptEl: HTMLElement;
   private pointerLockPrompt: HTMLElement;
   private deadAlert: HTMLElement;
+  private deadTitleEl: HTMLElement;
+  private deadWinnerEl: HTMLElement;
   private respawnCountdown: HTMLElement;
   private damageFlash: HTMLElement;
 
@@ -53,6 +56,10 @@ export class DoomHud {
         </div>
       </div>
 
+      <!-- Top Right: Live Killfeed & Round Events -->
+      <div id="hud-killfeed" style="position: absolute; top: 18px; right: 24px; width: 340px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; pointer-events: none;">
+      </div>
+
       <!-- Center: Interaction Prompt -->
       <div id="hud-prompt" style="position: absolute; top: 62%; left: 50%; transform: translate(-50%, -50%); display: none; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); border: 1px solid #38bdf8; border-bottom: 3px solid #38bdf8; padding: 10px 24px; border-radius: 10px; color: #f8fafc; font-size: 15px; font-weight: 800; letter-spacing: 1px; text-align: center; box-shadow: 0 0 25px rgba(56,189,248,0.35);">
         [E] INTERAKCJA
@@ -64,10 +71,11 @@ export class DoomHud {
         <span style="font-size: 12px; color: #94a3b8; font-family: 'Inter', sans-serif; font-weight: 500; margin-top: 6px; display: inline-block;">[WASD] Ruch &bull; [SPACJA] Cyber-Dash &bull; [R] Przeładowanie &bull; [E] Broń ze stojaka</span>
       </div>
 
-      <!-- Center Elimination Alert -->
-      <div id="hud-dead-alert" style="display: none; position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%); background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(14px); border: 2px solid #ef4444; padding: 24px 48px; border-radius: 16px; color: #fff; font-size: 28px; font-weight: 900; text-align: center; letter-spacing: 2px; box-shadow: 0 0 50px rgba(239,68,68,0.5);">
-        💀 WYELIMINOWANY<br>
-        <div id="hud-respawn-countdown" style="font-size: 16px; color: #38bdf8; margin-top: 8px; letter-spacing: 1px;">TRWA WALKA POZOSTAŁYCH GRACZY...</div>
+      <!-- Center Elimination Alert (shows who killed you & who won the round) -->
+      <div id="hud-dead-alert" style="display: none; position: absolute; top: 32%; left: 50%; transform: translate(-50%, -50%); background: rgba(9, 13, 22, 0.92); backdrop-filter: blur(16px); border: 2px solid #ef4444; padding: 22px 44px; border-radius: 16px; color: #fff; text-align: center; letter-spacing: 1.5px; box-shadow: 0 0 50px rgba(239,68,68,0.55);">
+        <div id="hud-dead-title" style="font-size: 28px; font-weight: 900; color: #ef4444;">💀 ZOSTAŁEŚ ZABITY!</div>
+        <div id="hud-dead-winner" style="display: none; font-size: 20px; font-weight: 900; color: #4ade80; margin-top: 8px; background: rgba(34,197,94,0.15); border: 1px solid #22c55e; padding: 4px 16px; border-radius: 8px;"></div>
+        <div id="hud-respawn-countdown" style="font-size: 15px; font-weight: 700; color: #38bdf8; margin-top: 10px; letter-spacing: 1px;">TRWA WALKA POZOSTAŁYCH GRACZY...</div>
       </div>
 
       <!-- Bottom Left: Cyber Mode Badge -->
@@ -104,6 +112,7 @@ export class DoomHud {
 
     this.topScoreboardEl = this.container.querySelector('#hud-top-scoreboard')!;
     this.myCardsEl = this.container.querySelector('#hud-my-cards')!;
+    this.killfeedEl = this.container.querySelector('#hud-killfeed')!;
     this.weaponEl = this.container.querySelector('#hud-weapon-name')!;
     this.ammoEl = this.container.querySelector('#hud-ammo')!;
     this.hpFillEl = this.container.querySelector('#hud-hp-fill')!;
@@ -112,8 +121,40 @@ export class DoomHud {
     this.promptEl = this.container.querySelector('#hud-prompt')!;
     this.pointerLockPrompt = this.container.querySelector('#hud-pointerlock-notice')!;
     this.deadAlert = this.container.querySelector('#hud-dead-alert')!;
+    this.deadTitleEl = this.container.querySelector('#hud-dead-title')!;
+    this.deadWinnerEl = this.container.querySelector('#hud-dead-winner')!;
     this.respawnCountdown = this.container.querySelector('#hud-respawn-countdown')!;
     this.damageFlash = this.container.querySelector('#hud-damage-flash')!;
+  }
+
+  public addEventFeed(text: string, color: string = '#38bdf8'): void {
+    const item = document.createElement('div');
+    item.style.cssText = `
+      background: rgba(9, 13, 22, 0.85);
+      backdrop-filter: blur(8px);
+      border-right: 4px solid ${color};
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding: 6px 14px;
+      border-radius: 6px;
+      color: #f8fafc;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    `;
+    item.textContent = text;
+    this.killfeedEl.appendChild(item);
+
+    while (this.killfeedEl.children.length > 5) {
+      this.killfeedEl.firstElementChild?.remove();
+    }
+
+    setTimeout(() => {
+      item.style.opacity = '0';
+      item.style.transform = 'translateX(20px)';
+      setTimeout(() => item.remove(), 300);
+    }, 4500);
   }
 
   private isLocked: boolean = false;
@@ -210,12 +251,23 @@ export class DoomHud {
     const dashPct = player.dashCooldownRemaining > 0 ? (1 - player.dashCooldownRemaining / 4000) * 100 : 100;
     this.dashFillEl.style.width = `${Math.max(0, Math.min(100, dashPct))}%`;
 
-    // 6. Elimination Alert
+    // 6. Elimination Alert (shows who killed you & who won the round)
     if (player.isDead) {
       this.deadAlert.style.display = 'block';
+      this.deadTitleEl.textContent = player.killedBy
+        ? `💀 ZABITY PRZEZ: ${player.killedBy}`
+        : '💀 WYELIMINOWANY';
+
+      if (snapshot.roundWinnerName) {
+        this.deadWinnerEl.style.display = 'inline-block';
+        this.deadWinnerEl.textContent = `🏆 ZWYCIĘZCA RUNDY: ${snapshot.roundWinnerName}`;
+      } else {
+        this.deadWinnerEl.style.display = 'none';
+      }
+
       if (snapshot.roundState === 'card_pick') {
         if (snapshot.cardPickerId === player.id) {
-          this.respawnCountdown.textContent = 'WYBIERZ 1 Z 3 KART ULEPSZEŃ!';
+          this.respawnCountdown.textContent = 'TWOJA KOLEJ — WYBIERZ 1 Z 3 KART ULEPSZEŃ!';
         } else {
           this.respawnCountdown.textContent = `WYBIERA TERAZ: ${snapshot.cardPickerName || 'GRACZ'}...`;
         }
