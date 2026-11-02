@@ -36,7 +36,7 @@ export function create3DWeaponMesh(weaponId: WeaponType): THREE.Group {
   if (weaponId === 'gauss') neonColor = 0x06b6d4;
 
   // Boosted HDR color (> 1.0) so UnrealBloomPass creates a rich neon glow around weapon rails & cores!
-  const hdrNeon = new THREE.Color(neonColor).multiplyScalar(2.35);
+  const hdrNeon = new THREE.Color(neonColor).multiplyScalar(1.95);
   const neonMat = new THREE.MeshBasicMaterial({ color: hdrNeon });
 
   if (weaponId === 'm16') {

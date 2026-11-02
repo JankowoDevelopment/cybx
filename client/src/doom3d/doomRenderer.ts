@@ -157,7 +157,7 @@ export class Doom3DRenderer {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.22;
+    this.renderer.toneMappingExposure = 1.14;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.container.appendChild(this.renderer.domElement);
@@ -169,9 +169,9 @@ export class Doom3DRenderer {
 
     this.bloomPass = new UnrealBloomPass(
       new THREE.Vector2(Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2)),
-      0.75, // strength
+      0.58, // strength
       0.55, // radius
-      0.62  // threshold (only bright HDR neons, bullets & explosions glow!)
+      0.68  // threshold (only bright HDR neons, bullets & explosions glow!)
     );
     this.composer.addPass(this.bloomPass);
     this.composer.addPass(new OutputPass());
@@ -390,9 +390,9 @@ export class Doom3DRenderer {
     this.scene.add(this.explosionFlashLight);
 
     // Rotating Floating Cyber-Reactor above Center Citadel (Boosted HDR Emissive for Bloom!)
-    const reactorGeo = new THREE.OctahedronGeometry(46, 1);
+    const reactorGeo = new THREE.OctahedronGeometry(38, 1);
     const reactorMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0xf59e0b).multiplyScalar(2.6),
+      color: new THREE.Color(0xf59e0b).multiplyScalar(1.5),
       wireframe: true
     });
     this.centerReactorMesh = new THREE.Mesh(reactorGeo, reactorMat);
@@ -416,15 +416,15 @@ export class Doom3DRenderer {
     this.scene.add(new THREE.Points(starGeo, starMat));
 
     // Atmospheric Floating Neon Dust / Cyber-Embers across the arena
-    const emberCount = 420;
+    const emberCount = 300;
     const emberGeo = new THREE.BufferGeometry();
     const emberPos = new Float32Array(emberCount * 3);
     const emberCol = new Float32Array(emberCount * 3);
     const palette = [
-      new THREE.Color(0x38bdf8).multiplyScalar(2.0),
-      new THREE.Color(0xec4899).multiplyScalar(2.0),
-      new THREE.Color(0xfbbf24).multiplyScalar(2.0),
-      new THREE.Color(0xa855f7).multiplyScalar(2.0)
+      new THREE.Color(0x38bdf8).multiplyScalar(0.85),
+      new THREE.Color(0xec4899).multiplyScalar(0.85),
+      new THREE.Color(0xfbbf24).multiplyScalar(0.85),
+      new THREE.Color(0xa855f7).multiplyScalar(0.85)
     ];
     for (let i = 0; i < emberCount; i++) {
       emberPos[i * 3] = 200 + Math.random() * (mapW - 400);
@@ -438,10 +438,10 @@ export class Doom3DRenderer {
     emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
     emberGeo.setAttribute('color', new THREE.BufferAttribute(emberCol, 3));
     const emberMat = new THREE.PointsMaterial({
-      size: 5.5,
+      size: 2.2,
       vertexColors: true,
       transparent: true,
-      opacity: 0.78,
+      opacity: 0.28,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     });
@@ -516,13 +516,13 @@ export class Doom3DRenderer {
 
     // HDR Neon Colors (> 1.0) trigger intense UnrealBloomPass glow!
     const cyanNeonMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0x38bdf8).multiplyScalar(2.7)
+      color: new THREE.Color(0x38bdf8).multiplyScalar(2.15)
     });
     const redNeonMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0xef4444).multiplyScalar(2.6)
+      color: new THREE.Color(0xef4444).multiplyScalar(2.1)
     });
     const purpleNeonMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0xa855f7).multiplyScalar(2.4)
+      color: new THREE.Color(0xa855f7).multiplyScalar(1.95)
     });
 
     // Reflected under-floor materials (visible through the 82% glossy floor!)
