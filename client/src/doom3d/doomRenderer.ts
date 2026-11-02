@@ -247,13 +247,16 @@ export class Doom3DRenderer {
       } else if (e.code === 'Space') {
         networkManager.send({ type: 'dash' });
       } else if (e.code === 'KeyG') {
-        // Grenade forward
-        const dirX = Math.cos(this.yaw) * 400;
-        const dirY = Math.sin(this.yaw) * 400;
+        // Grenade thrown forward along camera view
+        const forwardDir = new THREE.Vector3();
+        this.camera.getWorldDirection(forwardDir);
+        forwardDir.y = 0;
+        forwardDir.normalize();
+
         networkManager.send({
           type: 'grenade',
-          targetX: this.camera.position.x + dirX,
-          targetY: this.camera.position.z + dirY
+          targetX: this.camera.position.x + forwardDir.x * 450,
+          targetY: this.camera.position.z + forwardDir.z * 450
         });
       }
     });
@@ -366,7 +369,7 @@ export class Doom3DRenderer {
       this.camera.rotation.y = this.yaw;
       this.camera.rotation.x = this.pitch;
 
-      // Calculate Forward & Strafe movement relative to camera yaw
+      // Calculate Forward & Strafe movement directly from the 3D Camera view matrix
       let forward = 0;
       let strafe = 0;
 
@@ -377,28 +380,35 @@ export class Doom3DRenderer {
 
       isMoving = forward !== 0 || strafe !== 0;
 
-      // Calculate directional vector
+      // Camera horizontal forward direction in 3D
+      const forwardDir = new THREE.Vector3();
+      this.camera.getWorldDirection(forwardDir);
+      forwardDir.y = 0;
+      forwardDir.normalize();
+
+      // Camera right direction in 3D (forward x UP)
+      const rightDir = new THREE.Vector3();
+      rightDir.crossVectors(forwardDir, new THREE.Vector3(0, 1, 0)).normalize();
+
       let moveX = 0;
       let moveY = 0;
 
       if (isMoving) {
-        // Forward vector along yaw
-        const fX = Math.cos(this.yaw);
-        const fY = Math.sin(this.yaw);
+        const moveVec = new THREE.Vector3();
+        if (forward !== 0) moveVec.addScaledVector(forwardDir, forward);
+        if (strafe !== 0) moveVec.addScaledVector(rightDir, strafe);
 
-        // Right vector along yaw
-        const rX = -Math.sin(this.yaw);
-        const rY = Math.cos(this.yaw);
-
-        moveX = forward * fX + strafe * rX;
-        moveY = forward * fY + strafe * rY;
-
-        const len = Math.sqrt(moveX * moveX + moveY * moveY) || 1;
-        moveX /= len;
-        moveY /= len;
+        if (moveVec.lengthSq() > 0) {
+          moveVec.normalize();
+          moveX = moveVec.x; // Map X
+          moveY = moveVec.z; // Map Y (Three.js Z is Map Y)
+        }
       }
 
-      // Send to authoritative server with precise 3D yaw & relative movement
+      // Calculate server yaw: direction the camera is facing on the 2D server map plane
+      const serverYaw = Math.atan2(forwardDir.z, forwardDir.x);
+
+      // Send to authoritative server with exact camera-relative movement & aim
       networkManager.send({
         type: 'input',
         up: forward > 0,
@@ -407,9 +417,9 @@ export class Doom3DRenderer {
         right: strafe > 0,
         moveX,
         moveY,
-        yaw: this.yaw,
-        mouseX: localPlayer.x + Math.cos(this.yaw) * 100,
-        mouseY: localPlayer.y + Math.sin(this.yaw) * 100,
+        yaw: serverYaw,
+        mouseX: localPlayer.x + Math.cos(serverYaw) * 100,
+        mouseY: localPlayer.y + Math.sin(serverYaw) * 100,
         shoot: this.isMouseDown && this.isPointerLocked && !this.shopModal.isOpen
       });
 
