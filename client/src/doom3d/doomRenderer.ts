@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { networkManager } from '../network/networkManager.js';
-import { GameSnapshot, PlayerState, ZombieState } from '@shared/types.js';
+import { GameSnapshot, PlayerState, WeaponType, ZombieState } from '@shared/types.js';
 import { SERVER_CONFIG } from '@shared/constants.js';
 import { DEADLOCK_ITEMS } from '@shared/items.js';
 import { ROUNDS_CARDS } from '@shared/cards.js';
@@ -19,6 +19,8 @@ interface OpponentModel3D {
   legL: THREE.Mesh;
   legR: THREE.Mesh;
   armR: THREE.Group;
+  gunMesh: THREE.Group;
+  weaponId: WeaponType;
   torso: THREE.Mesh;
   walkPhase: number;
   lastX: number;
@@ -342,7 +344,7 @@ export class Doom3DRenderer {
     }
   }
 
-  private createCyberOpponentModel(colorHex: string): OpponentModel3D {
+  private createCyberOpponentModel(colorHex: string, initialWeapon: WeaponType = 'm16'): OpponentModel3D {
     const group = new THREE.Group();
     const primaryColor = new THREE.Color(colorHex || '#ef4444');
 
@@ -360,10 +362,32 @@ export class Doom3DRenderer {
     });
     const visorMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
 
+    // X-Ray Wallhack Material (renders through all walls so opponents are always visible!)
+    const xrayMat = new THREE.MeshBasicMaterial({
+      color: primaryColor,
+      transparent: true,
+      opacity: 0.44,
+      depthTest: false,
+      depthWrite: false
+    });
+    const xrayWireMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.35,
+      depthTest: false,
+      depthWrite: false
+    });
+
     const torso = new THREE.Mesh(new THREE.BoxGeometry(16, 18, 10), armorMat);
     torso.position.y = 25;
     torso.castShadow = true;
     group.add(torso);
+
+    const xrayTorso = new THREE.Mesh(new THREE.BoxGeometry(16.6, 18.6, 10.6), xrayMat);
+    xrayTorso.position.y = 25;
+    xrayTorso.renderOrder = 998;
+    group.add(xrayTorso);
 
     const chestCore = new THREE.Mesh(new THREE.BoxGeometry(8, 8, 10.6), accentMat);
     chestCore.position.y = 26;
@@ -377,6 +401,17 @@ export class Doom3DRenderer {
     const crest = new THREE.Mesh(new THREE.BoxGeometry(3, 2.5, 11), accentMat);
     crest.position.set(0, 45.5, 0);
     group.add(head, visor, crest);
+
+    const xrayHead = new THREE.Mesh(new THREE.BoxGeometry(10.8, 10.8, 10.8), xrayMat);
+    xrayHead.position.y = 40;
+    xrayHead.renderOrder = 998;
+    group.add(xrayHead);
+
+    // Floating X-Ray Diamond Beacon above opponent head (visible through walls at any distance)
+    const beacon = new THREE.Mesh(new THREE.OctahedronGeometry(5.5, 0), xrayWireMat);
+    beacon.position.y = 51;
+    beacon.renderOrder = 998;
+    group.add(beacon);
 
     const padGeo = new THREE.BoxGeometry(6, 7, 11);
     const padL = new THREE.Mesh(padGeo, accentMat);
@@ -397,7 +432,7 @@ export class Doom3DRenderer {
     armRMesh.position.set(0, 0, 5);
     armR.add(armRMesh);
 
-    const gun = create3DWeaponMesh('m16');
+    const gun = create3DWeaponMesh(initialWeapon);
     gun.scale.set(1.1, 1.1, 1.1);
     gun.rotation.y = Math.PI;
     gun.position.set(0, 1, 12);
@@ -413,11 +448,18 @@ export class Doom3DRenderer {
     legR.castShadow = true;
     group.add(legL, legR);
 
+    const xrayLegs = new THREE.Mesh(new THREE.BoxGeometry(15, 16, 6.5), xrayMat);
+    xrayLegs.position.set(0, 8, 0);
+    xrayLegs.renderOrder = 998;
+    group.add(xrayLegs);
+
     return {
       group,
       legL,
       legR,
       armR,
+      gunMesh: gun,
+      weaponId: initialWeapon,
       torso,
       walkPhase: 0,
       lastX: 0,
@@ -623,7 +665,8 @@ export class Doom3DRenderer {
     this.explosionFlashLight.position.set(x, 45, y);
     this.explosionFlashLight.intensity = 6.0;
 
-    const clampedVisualRadius = Math.min(130, radius * 0.85);
+    // Visual explosion radius scales with bullet size & server explosion radius!
+    const clampedVisualRadius = Math.min(360, radius * 0.95);
     this.activeExplosions.push({
       group,
       core,
@@ -949,7 +992,7 @@ export class Doom3DRenderer {
       let hpBar = this.playerHpBars.get(p.id);
 
       if (!model) {
-        model = this.createCyberOpponentModel(p.color || '#ef4444');
+        model = this.createCyberOpponentModel(p.color || '#ef4444', p.weaponId);
         model.group.position.set(p.x, 0, p.y);
         model.lastX = p.x;
         model.lastZ = p.y;
@@ -961,13 +1004,31 @@ export class Doom3DRenderer {
         canvas.height = 64;
         const ctx = canvas.getContext('2d')!;
         const hpTex = new THREE.CanvasTexture(canvas);
-        const hpMat = new THREE.SpriteMaterial({ map: hpTex, transparent: true, depthTest: false });
+        const hpMat = new THREE.SpriteMaterial({
+          map: hpTex,
+          transparent: true,
+          depthTest: false,
+          depthWrite: false
+        });
         const hpSprite = new THREE.Sprite(hpMat);
+        hpSprite.renderOrder = 999;
         hpSprite.scale.set(38, 9.5, 1);
         hpSprite.position.set(p.x, 56, p.y);
         this.scene.add(hpSprite);
         hpBar = { sprite: hpSprite, canvas, ctx, tex: hpTex };
         this.playerHpBars.set(p.id, hpBar);
+      }
+
+      // Update opponent's 3D held weapon if they unlocked a new weapon card!
+      if (model.weaponId !== p.weaponId) {
+        model.armR.remove(model.gunMesh);
+        const newGun = create3DWeaponMesh(p.weaponId);
+        newGun.scale.set(1.1, 1.1, 1.1);
+        newGun.rotation.y = Math.PI;
+        newGun.position.set(0, 1, 12);
+        model.armR.add(newGun);
+        model.gunMesh = newGun;
+        model.weaponId = p.weaponId;
       }
 
       if (p.isDead) {
@@ -1005,7 +1066,14 @@ export class Doom3DRenderer {
       }
 
       if (hpBar) {
-        hpBar.sprite.position.set(model.group.position.x, 56, model.group.position.z);
+        // Scale nametag & HP bar with distance so opponents are clearly visible through walls across the 4800x4800 map!
+        const distToCam = Math.hypot(
+          model.group.position.x - this.camera.position.x,
+          model.group.position.z - this.camera.position.z
+        );
+        const distScale = Math.max(1, Math.min(5.5, distToCam / 520));
+        hpBar.sprite.scale.set(38 * distScale, 9.5 * distScale, 1);
+        hpBar.sprite.position.set(model.group.position.x, 58 + (distScale - 1) * 7, model.group.position.z);
 
         const ctx = hpBar.ctx;
         ctx.clearRect(0, 0, 256, 64);
@@ -1118,8 +1186,13 @@ export class Doom3DRenderer {
       const tailZ = b.y - b.vy * len;
 
       let col = 0x38bdf8;
-      if (b.weaponId === 'shotgun') col = 0xf59e0b;
+      if (b.weaponId === 'shotgun' || b.weaponId === 'flamethrower') col = 0xf97316;
       if (b.weaponId === 'raygun') col = 0x22c55e;
+      if (b.weaponId === 'sniper') col = 0xe879f9;
+      if (b.weaponId === 'minigun') col = 0xfacc15;
+      if (b.weaponId === 'rpg') col = 0xef4444;
+      if (b.weaponId === 'crossbow') col = 0xc084fc;
+      if (b.weaponId === 'gauss') col = 0x06b6d4;
       if (b.isTesla) col = 0xa855f7;
       if (b.bouncesLeft > 0) col = 0xec4899;
 
@@ -1131,7 +1204,7 @@ export class Doom3DRenderer {
       this.activeTracers.push({ mesh: line, dieTime: now + 40 });
 
       const radius = b.bulletRadius || 5;
-      const spriteSize = Math.min(48, Math.max(10, radius * 3.2));
+      const spriteSize = Math.min(82, Math.max(10, radius * 3.2));
       const sMat = new THREE.SpriteMaterial({
         map: this.getBulletTexture(),
         color: col,

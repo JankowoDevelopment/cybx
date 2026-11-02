@@ -65,6 +65,7 @@ export class GameSimulation {
   };
 
   private playerLastShot: Map<string, number> = new Map();
+  private pendingBursts: { playerId: string; shotsLeft: number; nextShotTime: number; intervalMs: number }[] = [];
   private zombieLastAttack: Map<string, number> = new Map();
   private lastExplosionBroadcastTime: number = 0;
   private nextId: number = 1;
@@ -137,6 +138,7 @@ export class GameSimulation {
     this.players.delete(id);
     this.playerInputs.delete(id);
     this.playerLastShot.delete(id);
+    this.pendingBursts = this.pendingBursts.filter((b) => b.playerId !== id);
     this.eliminatedOrder = this.eliminatedOrder.filter((pid) => pid !== id);
     this.cardPickQueue = this.cardPickQueue.filter((pid) => pid !== id);
     if (this.cardPickerId === id) {
@@ -158,6 +160,7 @@ export class GameSimulation {
     this.roundWinnerName = null;
     this.eliminatedOrder = [];
     this.cardPickQueue = [];
+    this.pendingBursts = [];
 
     // Reset stats & respawn players at arena sides
     const playerIds = Array.from(this.players.keys());
@@ -166,12 +169,12 @@ export class GameSimulation {
       p.isDead = false;
       p.killedBy = null;
       p.cards = [];
+      p.weaponId = 'm16';
       p.roundWins = 0;
       this.recalculatePlayerStats(p);
       p.hp = p.maxHp;
-      const wep = WEAPONS[p.weaponId];
-      p.ammoClip = wep.clipSize;
-      p.ammoReserve = wep.maxReserve;
+      p.ammoClip = this.getMaxClipForPlayer(p);
+      p.ammoReserve = WEAPONS[p.weaponId].maxReserve * 2;
 
       const spawn = this.map.playerSpawns[i % this.map.playerSpawns.length];
       p.x = spawn.x;
@@ -184,16 +187,35 @@ export class GameSimulation {
     this.onSoundEvent?.('round_start');
   }
 
-  public recalculatePlayerStats(player: PlayerState): void {
-    let maxHp = SERVER_CONFIG.BASE_PLAYER_HP;
-
-    for (const cardId of (player.cards || [])) {
+  public getMaxClipForPlayer(player: PlayerState): number {
+    const wep = WEAPONS[player.weaponId];
+    let clipBonusPct = 0;
+    for (const cardId of player.cards || []) {
       const card = ROUNDS_CARDS.find((c) => c.id === cardId);
-      if (card?.stats.maxHpBonus) {
-        maxHp += card.stats.maxHpBonus;
+      if (card?.stats.bonusClipPct) clipBonusPct += card.stats.bonusClipPct;
+    }
+    return Math.max(1, Math.round(wep.clipSize * (1 + clipBonusPct / 100)));
+  }
+
+  public recalculatePlayerStats(player: PlayerState): void {
+    let totalMaxHpPct = 0;
+    let grantedWeapon: WeaponType | null = null;
+
+    for (const cardId of player.cards || []) {
+      const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+      if (!card) continue;
+      if (card.stats.maxHpPct) {
+        totalMaxHpPct += card.stats.maxHpPct;
+      }
+      if (card.stats.grantWeapon) {
+        grantedWeapon = card.stats.grantWeapon;
       }
     }
-    player.maxHp = Math.max(25, maxHp);
+
+    if (grantedWeapon) {
+      player.weaponId = grantedWeapon;
+    }
+    player.maxHp = Math.max(30, Math.round(SERVER_CONFIG.BASE_PLAYER_HP * (1 + totalMaxHpPct / 100)));
   }
 
   public drawRandomCards(count: number, currentCards: string[] = []): string[] {
@@ -255,6 +277,7 @@ export class GameSimulation {
     this.offeredCards = [];
     this.roundWinnerName = null;
     this.bullets = [];
+    this.pendingBursts = [];
     this.eliminatedOrder = [];
     this.cardPickQueue = [];
 
@@ -268,9 +291,8 @@ export class GameSimulation {
       p.killedBy = null;
       this.recalculatePlayerStats(p);
       p.hp = p.maxHp;
-      const wep = WEAPONS[p.weaponId];
-      p.ammoClip = wep.clipSize;
-      p.ammoReserve = wep.maxReserve;
+      p.ammoClip = this.getMaxClipForPlayer(p);
+      p.ammoReserve = WEAPONS[p.weaponId].maxReserve * 2;
       p.isReloading = false;
 
       const spawnIdx = (roundOffset + i) % this.map.playerSpawns.length;
@@ -306,6 +328,7 @@ export class GameSimulation {
     target.hp = 0;
     target.isDead = true;
     target.deaths++;
+    this.pendingBursts = this.pendingBursts.filter((b) => b.playerId !== target.id);
     this.onSoundEvent?.('zombie_death');
 
     if (!this.eliminatedOrder.includes(target.id)) {
@@ -408,15 +431,21 @@ export class GameSimulation {
       if (player) player.isDashing = false;
     }, SERVER_CONFIG.PLAYER_DASH_DURATION);
 
-    // Calculate cooldown with Deadlock item reductions
+    // Calculate cooldown with ROUNDS percentage reductions & Deadlock item reductions
     let cd = SERVER_CONFIG.PLAYER_BASE_DASH_COOLDOWN;
+    for (const cardId of player.cards || []) {
+      const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+      if (card?.stats.dashCooldownReductionPct) {
+        cd *= Math.max(0.2, 1 - card.stats.dashCooldownReductionPct / 100);
+      }
+    }
     for (const itemId of player.items) {
       const item = DEADLOCK_ITEMS.find((i) => i.id === itemId);
       if (item?.stats.dashCooldownReduction) {
         cd -= item.stats.dashCooldownReduction;
       }
     }
-    player.dashCooldownRemaining = Math.max(1200, cd);
+    player.dashCooldownRemaining = Math.max(400, Math.round(cd));
     this.onSoundEvent?.('dash');
   }
 
@@ -429,8 +458,8 @@ export class GameSimulation {
     const player = this.players.get(playerId);
     if (!player || player.downed || player.isReloading) return;
 
-    const weapon = WEAPONS[player.weaponId];
-    if (player.ammoClip >= weapon.clipSize || player.ammoReserve <= 0) return;
+    const maxClip = this.getMaxClipForPlayer(player);
+    if (player.ammoClip >= maxClip || player.ammoReserve <= 0) return;
 
     player.isReloading = true;
     player.reloadProgress = 0;
@@ -607,8 +636,27 @@ export class GameSimulation {
       }
     }
 
-    // 3. Update Players
+    // 3. Update Players & Process Active Bursts
     const now = Date.now();
+
+    if (this.roundState === 'active') {
+      for (let i = this.pendingBursts.length - 1; i >= 0; i--) {
+        const burst = this.pendingBursts[i];
+        const bp = this.players.get(burst.playerId);
+        if (!bp || bp.isDead) {
+          this.pendingBursts.splice(i, 1);
+          continue;
+        }
+        if (now >= burst.nextShotTime) {
+          this.fireWeaponVolley(bp, true);
+          burst.shotsLeft--;
+          burst.nextShotTime = now + burst.intervalMs;
+          if (burst.shotsLeft <= 0) {
+            this.pendingBursts.splice(i, 1);
+          }
+        }
+      }
+    }
 
     for (const [_, player] of this.players) {
       if (player.isDead) continue;
@@ -620,11 +668,13 @@ export class GameSimulation {
         player.dashCooldownRemaining = Math.max(0, player.dashCooldownRemaining - dtMs);
       }
 
-      // Passive HP Regen (from cards and items)
+      // Passive HP Regen (percentage of Max HP per sec from ROUNDS cards + flat from items)
       let regenPerSec = 0;
-      for (const cardId of (player.cards || [])) {
+      for (const cardId of player.cards || []) {
         const card = ROUNDS_CARDS.find((c) => c.id === cardId);
-        if (card?.stats.hpRegen) regenPerSec += card.stats.hpRegen;
+        if (card?.stats.hpRegenPct) {
+          regenPerSec += (player.maxHp * card.stats.hpRegenPct) / 100;
+        }
       }
       for (const itemId of player.items) {
         const item = DEADLOCK_ITEMS.find((i) => i.id === itemId);
@@ -904,16 +954,16 @@ export class GameSimulation {
     const weapon = WEAPONS[player.weaponId];
     const lastShot = this.playerLastShot.get(player.id) || 0;
 
-    // Fire rate modifier from cards & items
+    // Fire rate modifier from cards & items (percentage)
     let fireInterval = weapon.fireRate;
-    for (const cardId of (player.cards || [])) {
+    for (const cardId of player.cards || []) {
       const card = ROUNDS_CARDS.find((c) => c.id === cardId);
       if (card?.stats.bonusFireRatePct) {
         fireInterval /= 1 + card.stats.bonusFireRatePct / 100;
       }
     }
 
-    fireInterval = Math.max(50, fireInterval);
+    fireInterval = Math.max(45, fireInterval);
 
     if (now - lastShot < fireInterval) return;
     if (player.ammoClip <= 0) {
@@ -924,22 +974,47 @@ export class GameSimulation {
     this.playerLastShot.set(player.id, now);
     player.ammoClip--;
 
-    // CRITICAL FIX: Send player.id so other clients know WHO fired!
+    // Fire primary volley
+    this.fireWeaponVolley(player, false);
+
+    // Calculate Burst / Barrage follow-up shots (flat count from weapon + cards)
+    let extraBurstShots = weapon.burstCount ? weapon.burstCount - 1 : 0;
+    for (const cardId of player.cards || []) {
+      const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+      if (card?.stats.burstCount) {
+        extraBurstShots += card.stats.burstCount;
+      }
+    }
+
+    if (extraBurstShots > 0) {
+      const clampedBurst = Math.min(8, extraBurstShots);
+      this.pendingBursts.push({
+        playerId: player.id,
+        shotsLeft: clampedBurst,
+        nextShotTime: now + 52,
+        intervalMs: 52
+      });
+    }
+  }
+
+  private fireWeaponVolley(player: PlayerState, isBurstFollowUp: boolean): void {
+    const weapon = WEAPONS[player.weaponId];
     this.onSoundEvent?.('shoot', player.weaponId, player.id);
 
-    // Calculate bullet stats modified by ROUNDS cards
+    // Calculate bullet stats modified by ROUNDS cards (percentage for stats, flat for pellets & bounces)
     let damage = weapon.damage;
     let bulletSpeed = weapon.bulletSpeed;
     let extraPellets = 0;
-    let bounceCount = 0;
-    let bulletRadius = 5;
-    let explosiveRadius = 0;
+    let bounceCount = weapon.bounceCount || 0;
+    let baseRadius = weapon.bulletRadius || 5;
+    let bulletSizeMultiplier = 1;
+    let explosiveRadiusPct = 0;
     let pierce = weapon.pierceCount;
     let spread = weapon.spread;
     let hasTesla = false;
     let hasFrost = false;
 
-    for (const cardId of (player.cards || [])) {
+    for (const cardId of player.cards || []) {
       const card = ROUNDS_CARDS.find((c) => c.id === cardId);
       if (!card) continue;
       if (card.stats.bonusDamagePct) damage *= 1 + card.stats.bonusDamagePct / 100;
@@ -947,19 +1022,35 @@ export class GameSimulation {
       if (card.stats.extraPellets) extraPellets += card.stats.extraPellets;
       if (card.stats.bounceCount) bounceCount += card.stats.bounceCount;
       if (card.stats.pierceBonus) pierce += card.stats.pierceBonus;
-      if (card.stats.bulletSizePct) bulletRadius *= 1 + card.stats.bulletSizePct / 100;
-      if (card.stats.explosiveRadius) explosiveRadius = Math.max(explosiveRadius, card.stats.explosiveRadius);
-      if (card.stats.spreadModifierPct) spread *= Math.max(0.1, 1 + card.stats.spreadModifierPct / 100);
+      if (card.stats.bulletSizePct) bulletSizeMultiplier *= 1 + card.stats.bulletSizePct / 100;
+      if (card.stats.explosiveRadiusPct) explosiveRadiusPct += card.stats.explosiveRadiusPct;
+      if (card.stats.spreadModifierPct) spread *= Math.max(0.08, 1 + card.stats.spreadModifierPct / 100);
       if (card.stats.hasTesla) hasTesla = true;
       if (card.stats.hasFreeze) hasFrost = true;
     }
 
-    const pellets = Math.min(10, (weapon.pellets || 1) + extraPellets);
-    const clampedBounce = Math.min(6, bounceCount);
-    const clampedRadius = Math.min(28, Math.round(bulletRadius));
+    const pellets = Math.min(16, (weapon.pellets || 1) + extraPellets);
+    const clampedBounce = Math.min(10, bounceCount);
+    const clampedRadius = Math.min(42, Math.max(3, Math.round(baseRadius * bulletSizeMultiplier)));
+
+    // Explosion radius scales directly with bullet size!
+    let baseExpRadius = weapon.explosiveRadius || 0;
+    if (explosiveRadiusPct > 0) {
+      baseExpRadius += 85 * (explosiveRadiusPct / 100);
+    }
+    const bulletScaleRatio = clampedRadius / 5;
+    const finalExplosiveRadius = baseExpRadius > 0 ? Math.min(380, Math.round(baseExpRadius * bulletScaleRatio)) : 0;
+
+    // Slight fan spread when firing multi-pellet Barrage on non-shotgun weapons
+    const effectiveSpread = pellets > 1 ? Math.max(spread, 0.08 + Math.min(0.24, pellets * 0.018)) : spread;
+    const burstJitter = isBurstFollowUp ? (Math.random() - 0.5) * 0.025 : 0;
 
     for (let i = 0; i < pellets; i++) {
-      const spreadAngle = (Math.random() - 0.5) * spread;
+      let spreadAngle = (Math.random() - 0.5) * effectiveSpread + burstJitter;
+      if (pellets > 2) {
+        const fanFraction = i / (pellets - 1) - 0.5;
+        spreadAngle = fanFraction * effectiveSpread * 0.85 + (Math.random() - 0.5) * effectiveSpread * 0.25 + burstJitter;
+      }
       const angle = player.angle + spreadAngle;
       const vx = Math.cos(angle) * bulletSpeed;
       const vy = Math.sin(angle) * bulletSpeed;
@@ -975,15 +1066,15 @@ export class GameSimulation {
         pierceLeft: pierce,
         bouncesLeft: clampedBounce,
         bulletRadius: clampedRadius,
-        damage: Math.round(damage),
-        explosiveRadius: explosiveRadius > 0 ? explosiveRadius : undefined,
+        damage: Math.max(1, Math.round(damage)),
+        explosiveRadius: finalExplosiveRadius > 0 ? finalExplosiveRadius : undefined,
         isTesla: hasTesla,
         isFrost: hasFrost
       });
     }
 
-    if (this.bullets.length > 100) {
-      this.bullets.splice(0, this.bullets.length - 100);
+    if (this.bullets.length > 220) {
+      this.bullets.splice(0, this.bullets.length - 220);
     }
   }
 

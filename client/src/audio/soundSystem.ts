@@ -92,21 +92,23 @@ class SoundSystem {
     const t = ctx.currentTime;
     const dest = this.getDestination();
 
-    if (weapon === 'raygun') {
-      // Sci-fi synth chirp
+    if (weapon === 'raygun' || weapon === 'gauss' || weapon === 'crossbow') {
+      // Sci-fi synth chirp / magnetic coil snap
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(950, t);
-      osc.frequency.exponentialRampToValueAtTime(130, t + 0.18);
+      osc.type = weapon === 'crossbow' ? 'triangle' : 'sawtooth';
+      const startFreq = weapon === 'gauss' ? 1400 : weapon === 'crossbow' ? 720 : 950;
+      const endFreq = weapon === 'gauss' ? 220 : 130;
+      osc.frequency.setValueAtTime(startFreq, t);
+      osc.frequency.exponentialRampToValueAtTime(endFreq, t + 0.16);
 
-      gain.gain.setValueAtTime(0.25, t);
-      gain.gain.exponentialRampToValueAtTime(0.005, t + 0.18);
+      gain.gain.setValueAtTime(0.22, t);
+      gain.gain.exponentialRampToValueAtTime(0.005, t + 0.16);
 
       osc.connect(gain);
       gain.connect(dest);
       osc.start(t);
-      osc.stop(t + 0.18);
+      osc.stop(t + 0.16);
       return;
     }
 
@@ -118,19 +120,25 @@ class SoundSystem {
     let subFreq = 140;
     let subGainLevel = 0.25;
 
-    if (weapon === 'shotgun') {
+    if (weapon === 'shotgun' || weapon === 'rpg') {
       noiseGainLevel = 0.38;
-      filterFreq = 500;
+      filterFreq = weapon === 'rpg' ? 380 : 500;
       filterType = 'lowpass';
       duration = 0.28;
-      subFreq = 95;
+      subFreq = 90;
       subGainLevel = 0.45;
-    } else if (weapon === 'thompson') {
-      noiseGainLevel = 0.14; // Lower so 10 shots/sec don't drown out other audio
-      filterFreq = 1400;
-      duration = 0.08;
+    } else if (weapon === 'sniper') {
+      noiseGainLevel = 0.36;
+      filterFreq = 1800;
+      duration = 0.22;
+      subFreq = 110;
+      subGainLevel = 0.42;
+    } else if (weapon === 'thompson' || weapon === 'minigun' || weapon === 'flamethrower') {
+      noiseGainLevel = weapon === 'flamethrower' ? 0.12 : 0.14;
+      filterFreq = weapon === 'flamethrower' ? 700 : 1400;
+      duration = 0.07;
       subFreq = 130;
-      subGainLevel = 0.16;
+      subGainLevel = 0.14;
     } else if (weapon === 'm16') {
       noiseGainLevel = 0.22;
       filterFreq = 1500;

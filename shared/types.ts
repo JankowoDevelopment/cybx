@@ -1,4 +1,15 @@
-export type WeaponType = 'm1911' | 'shotgun' | 'thompson' | 'm16' | 'raygun';
+export type WeaponType =
+  | 'm1911'
+  | 'shotgun'
+  | 'thompson'
+  | 'm16'
+  | 'raygun'
+  | 'sniper'
+  | 'minigun'
+  | 'rpg'
+  | 'flamethrower'
+  | 'crossbow'
+  | 'gauss';
 
 export interface WeaponDef {
   id: WeaponType;
@@ -11,6 +22,10 @@ export interface WeaponDef {
   spread: number; // radians
   bulletSpeed: number;
   pellets?: number;
+  burstCount?: number; // innate burst shots
+  bounceCount?: number; // innate bounces
+  bulletRadius?: number; // base bullet radius (default 5)
+  explosiveRadius?: number; // innate explosion radius
   pierceCount: number;
   cost: number;
   ammoCost: number;

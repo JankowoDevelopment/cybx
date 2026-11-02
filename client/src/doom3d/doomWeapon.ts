@@ -13,6 +13,12 @@ export function create3DWeaponMesh(weaponId: WeaponType): THREE.Group {
   if (weaponId === 'thompson') neonColor = 0xa855f7;
   if (weaponId === 'raygun') neonColor = 0x22c55e;
   if (weaponId === 'm1911') neonColor = 0xfbbf24;
+  if (weaponId === 'sniper') neonColor = 0xe879f9;
+  if (weaponId === 'minigun') neonColor = 0xfacc15;
+  if (weaponId === 'rpg') neonColor = 0xef4444;
+  if (weaponId === 'flamethrower') neonColor = 0xf97316;
+  if (weaponId === 'crossbow') neonColor = 0xc084fc;
+  if (weaponId === 'gauss') neonColor = 0x06b6d4;
 
   const neonMat = new THREE.MeshBasicMaterial({ color: neonColor });
 
@@ -110,6 +116,107 @@ export function create3DWeaponMesh(weaponId: WeaponType): THREE.Group {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(1.4 - i * 0.2, 0.18, 8, 20), neonMat);
       ring.position.set(0, 0.3, -5 - i * 3);
       group.add(ring);
+    }
+  } else if (weaponId === 'sniper') {
+    // Heavy Railgun Sniper with Long Dual-Rail Barrel & High-Power Scope
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 2.8, 15), darkMetal);
+    group.add(body);
+
+    const railTop = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 19), gunMetal);
+    railTop.position.set(0, 0.8, -12);
+    const railBot = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 19), gunMetal);
+    railBot.position.set(0, -0.3, -12);
+    const plasmaCore = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.45, 18.5), neonMat);
+    plasmaCore.position.set(0, 0.25, -12);
+
+    const scopeTube = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.7, 6.5, 14), darkMetal);
+    scopeTube.rotation.x = Math.PI / 2;
+    scopeTube.position.set(0, 2.6, -2);
+    const lens = new THREE.Mesh(new THREE.CircleGeometry(0.75, 12), neonMat);
+    lens.position.set(0, 2.6, 1.26);
+
+    group.add(railTop, railBot, plasmaCore, scopeTube, lens);
+  } else if (weaponId === 'minigun') {
+    // 6-Barrel Rotary Vulcan Minigun
+    const housing = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 2.3, 8, 16), darkMetal);
+    housing.rotation.x = Math.PI / 2;
+    housing.position.set(0, -0.4, -1);
+    group.add(housing);
+
+    for (let i = 0; i < 6; i++) {
+      const ang = (i / 6) * Math.PI * 2;
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 14, 10), gunMetal);
+      b.rotation.x = Math.PI / 2;
+      b.position.set(Math.cos(ang) * 1.3, -0.4 + Math.sin(ang) * 1.3, -9);
+      group.add(b);
+    }
+
+    const clampRing = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.25, 8, 18), neonMat);
+    clampRing.position.set(0, -0.4, -13);
+    const clampRing2 = clampRing.clone();
+    clampRing2.position.z = -7;
+    group.add(clampRing, clampRing2);
+  } else if (weaponId === 'rpg') {
+    // Apex Shoulder-Fired Rocket Launcher with Warhead
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 18, 16), darkMetal);
+    tube.rotation.x = Math.PI / 2;
+    tube.position.set(0, 0.4, -5);
+
+    const warhead = new THREE.Mesh(new THREE.ConeGeometry(1.8, 4.8, 14), neonMat);
+    warhead.rotation.x = -Math.PI / 2;
+    warhead.position.set(0, 0.4, -15.5);
+
+    const sight = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.0, 1.5), gunMetal);
+    sight.position.set(-1.6, 1.5, -4);
+
+    group.add(tube, warhead, sight);
+  } else if (weaponId === 'flamethrower') {
+    // Solar Plasma Incinerator with Fuel Tanks
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2.6, 3.0, 12), darkMetal);
+    const tankL = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 9, 12), neonMat);
+    tankL.rotation.x = Math.PI / 2;
+    tankL.position.set(-1.8, -0.8, -2);
+    const tankR = tankL.clone();
+    tankR.position.x = 1.8;
+
+    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 0.7, 7, 12), gunMetal);
+    nozzle.rotation.x = Math.PI / 2;
+    nozzle.position.set(0, 0.3, -10);
+
+    const pilotFlame = new THREE.Mesh(new THREE.SphereGeometry(0.85, 10, 10), neonMat);
+    pilotFlame.position.set(0, 0.3, -14.2);
+
+    group.add(body, tankL, tankR, nozzle, pilotFlame);
+  } else if (weaponId === 'crossbow') {
+    // Cyber Ricochet Crossbow with Glowing Bow Limbs
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.4, 14), darkMetal);
+    const bowArc = new THREE.Mesh(new THREE.BoxGeometry(11, 0.6, 1.4), gunMetal);
+    bowArc.position.set(0, 0.6, -9);
+
+    const stringL = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.25, 0.25), neonMat);
+    stringL.position.set(-2.6, 0.7, -6.5);
+    stringL.rotation.y = 0.45;
+    const stringR = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.25, 0.25), neonMat);
+    stringR.position.set(2.6, 0.7, -6.5);
+    stringR.rotation.y = -0.45;
+
+    const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 10, 8), neonMat);
+    bolt.rotation.x = Math.PI / 2;
+    bolt.position.set(0, 1.2, -7);
+
+    group.add(stock, bowArc, stringL, stringR, bolt);
+  } else if (weaponId === 'gauss') {
+    // Gauss Burst Rifle with Magnetic Coils
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2.2, 3.0, 13), gunMetal);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 13, 12), darkMetal);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.set(0, 0.5, -10);
+    group.add(body, barrel);
+
+    for (let i = 0; i < 4; i++) {
+      const coil = new THREE.Mesh(new THREE.TorusGeometry(1.1, 0.22, 8, 16), neonMat);
+      coil.position.set(0, 0.5, -6 - i * 2.5);
+      group.add(coil);
     }
   } else {
     // Tactical Cyber Pistol (m1911)
