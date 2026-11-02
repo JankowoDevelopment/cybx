@@ -1,0 +1,3 @@
+build/
+sourcemap.json
+tools/globalTypes.d.luau

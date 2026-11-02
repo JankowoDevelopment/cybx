@@ -2,6 +2,7 @@ import { WeaponType } from '@shared/types.js';
 import { settingsManager } from '../settings/settingsManager.js';
 
 export interface SpatialSoundOptions {
+  isSelf?: boolean;
   sourceX?: number;
   sourceY?: number;
   listenerX?: number;
@@ -68,12 +69,25 @@ class SoundSystem {
   }
 
   /**
-   * Builds a spatial routing chain (StereoPanner + Distance Gain + Wall/Rear Lowpass Filter)
-   * when 3D spatial coordinates are provided and enabled in settings.
+   * Builds a spatial routing chain (StereoPanner + Distance Gain + Wall/Rear Lowpass Filter).
+   * Own actions (isSelf) are heavily attenuated so they never drown out directional enemy cues!
    */
-  private createSpatialDestination(ctx: AudioContext, spatial?: SpatialSoundOptions): AudioNode | null {
+  private createSpatialDestination(
+    ctx: AudioContext,
+    sound: string,
+    spatial?: SpatialSoundOptions
+  ): AudioNode | null {
     const baseDest = this.compressor!;
     const s = settingsManager.get();
+
+    // 1. If it's the local player's own action (own gunshot, own reload, own dash), quiet it down significantly!
+    if (spatial?.isSelf) {
+      const selfGain = ctx.createGain();
+      const mult = sound === 'shoot' ? 0.22 : sound === 'explosion' ? 0.28 : 0.26;
+      selfGain.gain.setValueAtTime(mult, ctx.currentTime);
+      selfGain.connect(baseDest);
+      return selfGain;
+    }
 
     if (
       !spatial ||
@@ -83,6 +97,13 @@ class SoundSystem {
       spatial.listenerX === undefined ||
       spatial.listenerY === undefined
     ) {
+      // Non-spatial UI / round sounds or self fallback
+      if (sound === 'shoot' || sound === 'explosion' || sound === 'dash') {
+        const fallbackGain = ctx.createGain();
+        fallbackGain.gain.setValueAtTime(0.28, ctx.currentTime);
+        fallbackGain.connect(baseDest);
+        return fallbackGain;
+      }
       return baseDest;
     }
 
@@ -90,21 +111,29 @@ class SoundSystem {
     const dy = spatial.sourceY - spatial.listenerY;
     const dist = Math.hypot(dx, dy);
 
-    // Very close sounds (e.g. own gunshots) play centered at full volume
-    if (dist < 28) {
-      return baseDest;
+    // Very close sounds (e.g. own explosion right at feet): cap volume so it never deafens the player!
+    if (dist < 140) {
+      const closeGain = ctx.createGain();
+      closeGain.gain.setValueAtTime(sound === 'explosion' ? 0.28 : 0.35, ctx.currentTime);
+      closeGain.connect(baseDest);
+      return closeGain;
     }
 
-    const maxHearDist = 4400;
+    // Full 4800x4800 arena diagonal is ~6788 units — keep all map sounds clearly audible!
+    const maxHearDist = 7200;
     if (dist > maxHearDist) {
-      return null; // Too far away to hear
+      return null;
     }
 
-    // Distance attenuation curve
+    // Boosted, gentle distance attenuation curve so distant & mid-range enemies are clearly heard
     const normDist = Math.min(1, dist / maxHearDist);
-    let distGainVal = Math.max(0.04, Math.pow(1 - normDist, 1.55));
+    let distGainVal = Math.max(0.32, Math.pow(1 - normDist, 0.62)) * 1.45;
+    if (sound === 'explosion') {
+      // Keep explosions punchy at distance, but never ear-splitting up close
+      distGainVal = Math.min(0.62, Math.max(0.28, (1 - normDist * 0.65) * 0.65));
+    }
 
-    // Stereo Left/Right Panning (-1 left ear to +1 right ear)
+    // Strong Stereo Left/Right Panning (-1 left ear to +1 right ear)
     const nx = dx / dist;
     const ny = dy / dist;
     const rightX = spatial.listenerRightX ?? 1;
@@ -112,26 +141,28 @@ class SoundSystem {
     const fwdX = spatial.listenerForwardX ?? 0;
     const fwdZ = spatial.listenerForwardZ ?? -1;
 
-    const panValue = Math.max(-1, Math.min(1, (nx * rightX + ny * rightZ) * 0.92));
+    const rawPan = nx * rightX + ny * rightZ;
+    // Slight non-linear boost so even 25-degree angles pan noticeably to the left or right ear
+    const panValue = Math.max(-1, Math.min(1, Math.sign(rawPan) * Math.pow(Math.abs(rawPan), 0.78)));
     const forwardDot = nx * fwdX + ny * fwdZ; // < 0 means behind the player's head
 
     const distGainNode = ctx.createGain();
     let tailNode: AudioNode = distGainNode;
 
-    // Apply muffled lowpass filter if sound is behind a wall or behind the player's head
-    const isBehindPlayer = forwardDot < -0.2;
-    if (spatial.occluded || isBehindPlayer || dist > 1400) {
+    // Subtle tone shaping for walls/rear without making the sound too quiet to hear
+    const isBehindPlayer = forwardDot < -0.25;
+    if (spatial.occluded || isBehindPlayer) {
       const lpf = ctx.createBiquadFilter();
       lpf.type = 'lowpass';
-      let cutoff = 6500 * (1 - normDist * 0.65);
+      let cutoff = 4200;
       if (spatial.occluded) {
-        cutoff = Math.min(cutoff, 1050);
-        distGainVal *= 0.68;
+        cutoff = 1650;
+        distGainVal *= 0.88; // Keep 88% volume through walls so you still clearly hear them!
       } else if (isBehindPlayer) {
-        cutoff = Math.min(cutoff, 2100);
-        distGainVal *= 0.85;
+        cutoff = 2600;
+        distGainVal *= 0.94;
       }
-      lpf.frequency.setValueAtTime(Math.max(420, cutoff), ctx.currentTime);
+      lpf.frequency.setValueAtTime(cutoff, ctx.currentTime);
       distGainNode.connect(lpf);
       tailNode = lpf;
     }
@@ -154,9 +185,10 @@ class SoundSystem {
     const s = settingsManager.get();
     if (s.muted || s.masterVolume <= 0 || s.sfxVolume <= 0) return;
 
-    // Micro-throttle identical sound bursts within 18ms to prevent WebAudio node overload during shotgun/barrage hits
+    // Separate throttle keys for self vs enemy so your own gunfire never blocks hearing an enemy shot!
     const nowMs = performance.now();
-    const throttleKey = weapon ? `${sound}_${weapon}` : sound;
+    const actorTag = spatial?.isSelf ? 'self' : 'env';
+    const throttleKey = `${actorTag}_${sound}_${weapon || ''}`;
     const minGap = sound === 'hit' ? 25 : sound === 'explosion' ? 40 : 14;
     const lastTime = this.lastSoundTimes.get(throttleKey) || 0;
     if (nowMs - lastTime < minGap) return;
@@ -164,7 +196,7 @@ class SoundSystem {
 
     try {
       const ctx = this.initCtx();
-      const dest = this.createSpatialDestination(ctx, spatial);
+      const dest = this.createSpatialDestination(ctx, sound, spatial);
       if (!dest) return;
 
       switch (sound) {

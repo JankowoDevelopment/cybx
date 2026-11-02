@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { networkManager } from '../network/networkManager.js';
 import { GameSnapshot, PlayerState, WeaponType, ZombieState } from '@shared/types.js';
 import { SERVER_CONFIG } from '@shared/constants.js';
@@ -34,6 +38,10 @@ export class Doom3DRenderer {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
+  private composer!: EffectComposer;
+  private bloomPass!: UnrealBloomPass;
+  private envMapTexture: THREE.Texture | null = null;
+  private atmosphereParticles: THREE.Points | null = null;
 
   private textures: DoomTextureSet;
   private weaponRenderer: DoomWeaponRenderer;
@@ -149,10 +157,27 @@ export class Doom3DRenderer {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.25;
+    this.renderer.toneMappingExposure = 1.22;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.container.appendChild(this.renderer.domElement);
+
+    // Post-Processing Pipeline: RenderPass + UnrealBloomPass + OutputPass
+    this.composer = new EffectComposer(this.renderer);
+    const renderPass = new RenderPass(this.scene, this.camera);
+    this.composer.addPass(renderPass);
+
+    this.bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2)),
+      0.75, // strength
+      0.55, // radius
+      0.62  // threshold (only bright HDR neons, bullets & explosions glow!)
+    );
+    this.composer.addPass(this.bloomPass);
+    this.composer.addPass(new OutputPass());
+
+    // Generate Procedural Cyber-Neon PMREM Reflection Environment (Fake Ray-Traced Specular Reflections)
+    this.createCyberReflectionEnv();
 
     // Initialize Subsystems
     this.textures = createDoomTextures();
@@ -232,6 +257,57 @@ export class Doom3DRenderer {
     }
   }
 
+  /**
+   * Generates a procedural equirectangular Cyber-Neon Environment Map and converts it via PMREMGenerator.
+   * Gives all metallic walls, floors, weapons, and armor realistic neon reflections as the camera moves!
+   */
+  private createCyberReflectionEnv(): void {
+    const c = document.createElement('canvas');
+    c.width = 512;
+    c.height = 256;
+    const ctx = c.getContext('2d')!;
+
+    // Deep cyber sky to dark floor gradient
+    const bg = ctx.createLinearGradient(0, 0, 0, 256);
+    bg.addColorStop(0, '#020617');
+    bg.addColorStop(0.45, '#0c192c');
+    bg.addColorStop(0.5, '#0ea5e9');
+    bg.addColorStop(0.55, '#090d16');
+    bg.addColorStop(1, '#020409');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, 512, 256);
+
+    // Bright neon horizon & vertical light panels for specular reflections
+    const neonColors = ['#38bdf8', '#ec4899', '#f59e0b', '#a855f7', '#22c55e', '#ef4444'];
+    for (let i = 0; i < 18; i++) {
+      const x = (i / 18) * 512;
+      ctx.fillStyle = neonColors[i % neonColors.length];
+      ctx.fillRect(x, 96, 14, 64);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(x + 4, 110, 6, 36);
+    }
+
+    // Glowing overhead cyber rings
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(20, 28, 472, 42);
+    ctx.strokeStyle = '#ec4899';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(40, 186, 432, 34);
+
+    const eqTex = new THREE.CanvasTexture(c);
+    eqTex.mapping = THREE.EquirectangularReflectionMapping;
+    eqTex.colorSpace = THREE.SRGBColorSpace;
+
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    pmrem.compileEquirectangularShader();
+    this.envMapTexture = pmrem.fromEquirectangular(eqTex).texture;
+    this.scene.environment = this.envMapTexture;
+
+    eqTex.dispose();
+    pmrem.dispose();
+  }
+
   private applyGraphicsSettings(): void {
     const s = settingsManager.get();
 
@@ -240,10 +316,16 @@ export class Doom3DRenderer {
       this.camera.updateProjectionMatrix();
     }
 
-    let maxDpr = 1.75;
+    let maxDpr = 1.65;
     if (s.graphicsQuality === 'low') maxDpr = 0.85;
     else if (s.graphicsQuality === 'medium') maxDpr = 1.25;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxDpr));
+    const dpr = Math.min(window.devicePixelRatio, maxDpr);
+    this.renderer.setPixelRatio(dpr);
+    this.composer?.setPixelRatio(dpr);
+
+    if (this.bloomPass) {
+      this.bloomPass.enabled = s.graphicsQuality !== 'low';
+    }
 
     if (this.renderer.shadowMap.enabled !== s.shadowsEnabled) {
       this.renderer.shadowMap.enabled = s.shadowsEnabled;
@@ -307,19 +389,17 @@ export class Doom3DRenderer {
     this.explosionFlashLight.position.set(0, -500, 0);
     this.scene.add(this.explosionFlashLight);
 
-    // Rotating Floating Cyber-Reactor above Center Citadel
-    const reactorGeo = new THREE.OctahedronGeometry(42, 1);
-    const reactorMat = new THREE.MeshStandardMaterial({
-      color: 0xf59e0b,
-      emissive: 0xf59e0b,
-      emissiveIntensity: 0.8,
+    // Rotating Floating Cyber-Reactor above Center Citadel (Boosted HDR Emissive for Bloom!)
+    const reactorGeo = new THREE.OctahedronGeometry(46, 1);
+    const reactorMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0xf59e0b).multiplyScalar(2.6),
       wireframe: true
     });
     this.centerReactorMesh = new THREE.Mesh(reactorGeo, reactorMat);
     this.centerReactorMesh.position.set(mapW / 2, 195, mapH / 2);
     this.scene.add(this.centerReactorMesh);
 
-    // 2. Starfield Night Sky + Holographic Cyber-Dome
+    // 2. Starfield Night Sky + Holographic Cyber-Dome + Floating Atmospheric Neon Embers
     const starGeo = new THREE.BufferGeometry();
     const starCount = 1200;
     const starPos = new Float32Array(starCount * 3);
@@ -335,20 +415,62 @@ export class Doom3DRenderer {
     const starMat = new THREE.PointsMaterial({ color: 0xe0f2fe, size: 8, transparent: true, opacity: 0.85 });
     this.scene.add(new THREE.Points(starGeo, starMat));
 
+    // Atmospheric Floating Neon Dust / Cyber-Embers across the arena
+    const emberCount = 420;
+    const emberGeo = new THREE.BufferGeometry();
+    const emberPos = new Float32Array(emberCount * 3);
+    const emberCol = new Float32Array(emberCount * 3);
+    const palette = [
+      new THREE.Color(0x38bdf8).multiplyScalar(2.0),
+      new THREE.Color(0xec4899).multiplyScalar(2.0),
+      new THREE.Color(0xfbbf24).multiplyScalar(2.0),
+      new THREE.Color(0xa855f7).multiplyScalar(2.0)
+    ];
+    for (let i = 0; i < emberCount; i++) {
+      emberPos[i * 3] = 200 + Math.random() * (mapW - 400);
+      emberPos[i * 3 + 1] = 8 + Math.random() * 190;
+      emberPos[i * 3 + 2] = 200 + Math.random() * (mapH - 400);
+      const c = palette[i % palette.length];
+      emberCol[i * 3] = c.r;
+      emberCol[i * 3 + 1] = c.g;
+      emberCol[i * 3 + 2] = c.b;
+    }
+    emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
+    emberGeo.setAttribute('color', new THREE.BufferAttribute(emberCol, 3));
+    const emberMat = new THREE.PointsMaterial({
+      size: 5.5,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.78,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    this.atmosphereParticles = new THREE.Points(emberGeo, emberMat);
+    this.scene.add(this.atmosphereParticles);
+
     const domeGeo = new THREE.SphereGeometry(3800, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);
     const domeMat = new THREE.MeshBasicMaterial({
-      color: 0x0284c7,
+      color: new THREE.Color(0x0284c7).multiplyScalar(1.4),
       wireframe: true,
       transparent: true,
-      opacity: 0.1
+      opacity: 0.12
     });
     const domeMesh = new THREE.Mesh(domeGeo, domeMat);
     domeMesh.position.set(mapW / 2, -60, mapH / 2);
     this.scene.add(domeMesh);
 
-    // 3. Cyber-Grid Arena Floor with Bump Mapping & Shadows
+    // 3. Fake Ray-Traced Wet Cyber-Floor (Sub-floor mirror abyss + translucent glossy obsidian floor)
     const floorGeo = new THREE.PlaneGeometry(1, 1);
     floorGeo.rotateX(-Math.PI / 2);
+
+    // Deep sub-floor dark backdrop so inverted under-floor reflections look like a deep glossy mirror
+    const abyssMesh = new THREE.Mesh(
+      floorGeo,
+      new THREE.MeshBasicMaterial({ color: 0x02040a })
+    );
+    abyssMesh.position.set(mapW / 2, -145, mapH / 2);
+    abyssMesh.scale.set(mapW * 1.2, 1, mapH * 1.2);
+    this.scene.add(abyssMesh);
 
     if (this.mapData.rooms) {
       for (const room of this.mapData.rooms) {
@@ -358,9 +480,12 @@ export class Doom3DRenderer {
         const floorMat = new THREE.MeshStandardMaterial({
           map: floorTex,
           bumpMap: floorTex,
-          bumpScale: 1.8,
-          roughness: 0.28,
-          metalness: 0.72
+          bumpScale: 1.4,
+          roughness: 0.11,
+          metalness: 0.90,
+          envMapIntensity: 2.8,
+          transparent: true,
+          opacity: 0.82
         });
 
         const floorMesh = new THREE.Mesh(floorGeo, floorMat);
@@ -371,46 +496,99 @@ export class Doom3DRenderer {
       }
     }
 
-    // 4. 3D Cyber-Walls & Pillars with Bump Depth, Shadows & Glowing Neon Trim
+    // 4. 3D Cyber-Walls & Pillars with Metallic Reflections, HDR Neon Glow & Under-Floor Fake Ray-Traced Reflections!
     const brickMat = new THREE.MeshStandardMaterial({
       map: this.textures.wallBrick,
       bumpMap: this.textures.wallBrick,
-      bumpScale: 2.2,
-      roughness: 0.28,
-      metalness: 0.78
+      bumpScale: 2.0,
+      roughness: 0.18,
+      metalness: 0.88,
+      envMapIntensity: 2.4
     });
     const perimeterMat = new THREE.MeshStandardMaterial({
       map: this.textures.wallPerimeter,
       bumpMap: this.textures.wallPerimeter,
-      bumpScale: 2.0,
-      roughness: 0.25,
-      metalness: 0.82
+      bumpScale: 1.8,
+      roughness: 0.16,
+      metalness: 0.90,
+      envMapIntensity: 2.4
     });
-    const cyanNeonMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
-    const redNeonMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+
+    // HDR Neon Colors (> 1.0) trigger intense UnrealBloomPass glow!
+    const cyanNeonMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0x38bdf8).multiplyScalar(2.7)
+    });
+    const redNeonMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0xef4444).multiplyScalar(2.6)
+    });
+    const purpleNeonMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0xa855f7).multiplyScalar(2.4)
+    });
+
+    // Reflected under-floor materials (visible through the 82% glossy floor!)
+    const reflWallMat = new THREE.MeshBasicMaterial({
+      color: 0x0c192e,
+      transparent: true,
+      opacity: 0.45
+    });
+    const reflCyanNeonMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0x38bdf8).multiplyScalar(1.85),
+      transparent: true,
+      opacity: 0.65
+    });
+    const reflRedNeonMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0xef4444).multiplyScalar(1.85),
+      transparent: true,
+      opacity: 0.65
+    });
 
     for (const wall of this.mapData.walls) {
       const h = wall.isPerimeter ? wallHeight * 1.4 : wallHeight;
       const wallGeo = new THREE.BoxGeometry(wall.w, h, wall.h);
       const mat = wall.isPerimeter ? perimeterMat : brickMat;
+      const cx = wall.x + wall.w / 2;
+      const cz = wall.y + wall.h / 2;
 
       const mesh = new THREE.Mesh(wallGeo, mat);
-      mesh.position.set(wall.x + wall.w / 2, h / 2, wall.y + wall.h / 2);
+      mesh.position.set(cx, h / 2, cz);
       mesh.castShadow = !wall.isPerimeter;
       mesh.receiveShadow = true;
       this.scene.add(mesh);
       this.wallMeshes.push(mesh);
 
-      // Top & Bottom Glowing Neon Strips
-      const trimGeo = new THREE.BoxGeometry(wall.w + 2, 4, wall.h + 2);
+      // Top HDR Glowing Neon Strip
+      const trimGeo = new THREE.BoxGeometry(wall.w + 2.5, 4.5, wall.h + 2.5);
       const topTrim = new THREE.Mesh(trimGeo, wall.isPerimeter ? redNeonMat : cyanNeonMat);
-      topTrim.position.set(wall.x + wall.w / 2, h + 1, wall.y + wall.h / 2);
+      topTrim.position.set(cx, h + 1, cz);
       this.scene.add(topTrim);
       this.wallMeshes.push(topTrim);
+
+      // Bottom Floor-Skirt HDR Neon Strip (creates intense floor contact glow!)
+      const botTrim = new THREE.Mesh(trimGeo, wall.isPerimeter ? redNeonMat : cyanNeonMat);
+      botTrim.position.set(cx, 1.8, cz);
+      this.scene.add(botTrim);
+
+      // Mid-height Cyber Accent Line on interior walls & pillars
+      if (!wall.isPerimeter) {
+        const midTrimGeo = new THREE.BoxGeometry(wall.w + 1.6, 2.2, wall.h + 1.6);
+        const midTrim = new THREE.Mesh(midTrimGeo, purpleNeonMat);
+        midTrim.position.set(cx, h * 0.52, cz);
+        this.scene.add(midTrim);
+      }
+
+      // FAKE RAY-TRACING: Mirrored Under-Floor Wall & Neon Reflection!
+      const reflH = h * 0.65;
+      const reflWall = new THREE.Mesh(new THREE.BoxGeometry(wall.w, reflH, wall.h), reflWallMat);
+      reflWall.position.set(cx, -reflH / 2 - 1, cz);
+      this.scene.add(reflWall);
+
+      const reflTopTrim = new THREE.Mesh(trimGeo, wall.isPerimeter ? reflRedNeonMat : reflCyanNeonMat);
+      reflTopTrim.position.set(cx, -reflH - 2, cz);
+      this.scene.add(reflTopTrim);
     }
 
     // 5. 3D Doors
-    const doorMat = new THREE.MeshStandardMaterial({ map: this.textures.door, roughness: 0.4, metalness: 0.7 });
+    const doorMat = new THREE.MeshStandardMaterial({ map: this.textures.door, roughness: 0.25, metalness: 0.85 });
     for (const door of this.mapData.initialDoors) {
       const doorGeo = new THREE.BoxGeometry(door.width, wallHeight, door.height);
       const mesh = new THREE.Mesh(doorGeo, doorMat);
@@ -419,21 +597,24 @@ export class Doom3DRenderer {
       this.doorMeshes.set(door.id, mesh);
     }
 
-    // 6. 3D Weapon Wall-Buy Hologram Pedestals
+    // 6. 3D Weapon Wall-Buy Hologram Pedestals (with HDR Neon Rings & Floor Reflection)
+    const hdrPedRingMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0x38bdf8).multiplyScalar(2.6)
+    });
     for (const wb of this.mapData.wallBuys) {
       const pedGroup = new THREE.Group();
       pedGroup.position.set(wb.x, 0, wb.y);
 
       const baseMesh = new THREE.Mesh(
         new THREE.CylinderGeometry(20, 26, 6, 16),
-        new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.9, roughness: 0.2 })
+        new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.92, roughness: 0.15, envMapIntensity: 2.5 })
       );
       baseMesh.position.y = 3;
       pedGroup.add(baseMesh);
 
       const ringMesh = new THREE.Mesh(
-        new THREE.TorusGeometry(22, 1.5, 8, 24),
-        new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
+        new THREE.TorusGeometry(22, 1.8, 8, 24),
+        hdrPedRingMat
       );
       ringMesh.rotation.x = Math.PI / 2;
       ringMesh.position.y = 6.5;
@@ -456,17 +637,21 @@ export class Doom3DRenderer {
 
     const armorMat = new THREE.MeshStandardMaterial({
       color: 0x1e293b,
-      roughness: 0.28,
-      metalness: 0.82
+      roughness: 0.16,
+      metalness: 0.92,
+      envMapIntensity: 2.5
     });
     const accentMat = new THREE.MeshStandardMaterial({
       color: primaryColor,
       emissive: primaryColor,
-      emissiveIntensity: 0.5,
-      roughness: 0.25,
-      metalness: 0.7
+      emissiveIntensity: 1.45,
+      roughness: 0.18,
+      metalness: 0.8,
+      envMapIntensity: 2.2
     });
-    const visorMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+    const visorMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0x38bdf8).multiplyScalar(2.5)
+    });
 
     // X-Ray Wallhack Material (renders through all walls so opponents are always visible!)
     const xrayMat = new THREE.MeshBasicMaterial({
@@ -678,6 +863,7 @@ export class Doom3DRenderer {
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
+      this.composer?.setSize(window.innerWidth, window.innerHeight);
     });
   }
 
@@ -793,13 +979,18 @@ export class Doom3DRenderer {
         }
       }
 
-      const isSelf = !shooterId || shooterId === networkManager.playerId;
-      const spatial = isSelf && sound !== 'hit' ? undefined : this.getSpatialSoundOptions(srcX, srcY);
-      soundSystem.playSound(sound, weapon, spatial);
+      const isSelf = Boolean(shooterId && shooterId === networkManager.playerId);
+      if (isSelf && sound !== 'hit') {
+        // Quiet down own actions (gunshots, reloads, dashes) so they never drown out directional enemy cues!
+        soundSystem.playSound(sound, weapon, { isSelf: true });
+      } else {
+        const spatial = this.getSpatialSoundOptions(srcX, srcY);
+        soundSystem.playSound(sound, weapon, spatial);
+      }
 
-      if (sound === 'shoot' && isSelf) {
+      if (sound === 'shoot' && (!shooterId || isSelf)) {
         this.weaponRenderer.triggerShoot();
-      } else if (sound === 'reload' && isSelf) {
+      } else if (sound === 'reload' && (!shooterId || isSelf)) {
         this.weaponRenderer.triggerReload();
       }
     };
@@ -852,20 +1043,20 @@ export class Doom3DRenderer {
     const group = new THREE.Group();
     group.position.set(x, 18, y);
 
-    // 1. Translucent Plasma Core (Never blinds the player!)
+    // 1. Translucent HDR Plasma Core (Glows with Bloom without blinding the player!)
     const coreMat = new THREE.MeshBasicMaterial({
-      color: 0xf97316,
+      color: new THREE.Color(0xf97316).multiplyScalar(2.1),
       transparent: true,
-      opacity: 0.38,
+      opacity: 0.36,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     });
     const core = new THREE.Mesh(this.sharedExpSphereGeo, coreMat);
     group.add(core);
 
-    // 2. Crisp Ground Shockwave Ring
+    // 2. Crisp HDR Ground Shockwave Ring
     const ringMat = new THREE.MeshBasicMaterial({
-      color: 0xfef08a,
+      color: new THREE.Color(0xfef08a).multiplyScalar(2.4),
       transparent: true,
       opacity: 0.85,
       depthWrite: false,
@@ -1220,8 +1411,17 @@ export class Doom3DRenderer {
       this.cameraShake = Math.max(0, this.cameraShake - dtSec * 2.5);
     }
 
-    // 6. Render 3D Scene
-    this.renderer.render(this.scene, this.camera);
+    // 6. Render 3D Scene (with Post-Processing UnrealBloomPass when enabled)
+    if (this.atmosphereParticles) {
+      this.atmosphereParticles.rotation.y = Math.sin(timestamp * 0.00015) * 0.08;
+      this.atmosphereParticles.position.y = Math.sin(timestamp * 0.0012) * 4;
+    }
+
+    if (this.composer && settingsManager.get().graphicsQuality !== 'low') {
+      this.composer.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
 
     // 7. Update FPS & Occlusion Culling Telemetry every 400ms
     this.fpsFrameCount++;
@@ -1494,7 +1694,8 @@ export class Doom3DRenderer {
       const radius = b.bulletRadius || 5;
       const spriteSize = Math.min(82, Math.max(10, radius * 3.2));
 
-      entry.spriteMat.color.setHex(col);
+      // Boost bullet & tracer HDR color so UnrealBloomPass makes projectiles glow intensely!
+      entry.spriteMat.color.setHex(col).multiplyScalar(2.4);
       entry.sprite.scale.set(spriteSize, spriteSize, 1);
       entry.sprite.position.set(bx, 24, bz);
       entry.sprite.visible = true;
@@ -1503,7 +1704,7 @@ export class Doom3DRenderer {
       const tracerLen = Math.min(48, Math.max(12, speed * 0.028));
       const yawAngle = Math.atan2(b.vx, b.vy);
 
-      entry.tracerMat.color.setHex(col);
+      entry.tracerMat.color.setHex(col).multiplyScalar(2.4);
       entry.tracer.scale.set(Math.max(1, radius * 0.25), Math.max(1, radius * 0.25), tracerLen);
       entry.tracer.rotation.set(0, yawAngle, 0);
       entry.tracer.position.set(
@@ -1555,12 +1756,25 @@ export class Doom3DRenderer {
 
         const glowRing = new THREE.Mesh(
           new THREE.TorusGeometry(10, 1.5, 8, 18),
-          new THREE.MeshBasicMaterial({ color: 0xef4444 })
+          new THREE.MeshBasicMaterial({ color: new THREE.Color(0xef4444).multiplyScalar(2.8) })
         );
         glowRing.rotation.x = Math.PI / 2;
         glowRing.position.y = 35.2;
         glowRing.name = 'hazard_ring';
         barrelGroup.add(glowRing);
+
+        // Under-floor Fake Ray-Traced Reflection Ring for Barrel
+        const reflRing = new THREE.Mesh(
+          new THREE.TorusGeometry(13, 1.8, 8, 18),
+          new THREE.MeshBasicMaterial({
+            color: new THREE.Color(0xef4444).multiplyScalar(1.8),
+            transparent: true,
+            opacity: 0.55
+          })
+        );
+        reflRing.rotation.x = Math.PI / 2;
+        reflRing.position.y = -4;
+        barrelGroup.add(reflRing);
 
         barrelGroup.position.set(b.x, 0, b.y);
         this.scene.add(barrelGroup);
@@ -1650,6 +1864,8 @@ export class Doom3DRenderer {
     this.sharedExpRingGeo.dispose();
     this.sharedDebrisGeo.dispose();
     this.sharedDebrisMat.dispose();
+    this.envMapTexture?.dispose();
+    this.composer?.dispose();
 
     this.weaponRenderer.destroy();
     this.hud.destroy();

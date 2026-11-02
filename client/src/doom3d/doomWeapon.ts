@@ -4,9 +4,24 @@ import { WeaponType } from '@shared/types.js';
 export function create3DWeaponMesh(weaponId: WeaponType): THREE.Group {
   const group = new THREE.Group();
 
-  const darkMetal = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.35, metalness: 0.85 });
-  const gunMetal = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.25, metalness: 0.9 });
-  const gripMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.8, metalness: 0.2 });
+  const darkMetal = new THREE.MeshStandardMaterial({
+    color: 0x1e293b,
+    roughness: 0.18,
+    metalness: 0.92,
+    envMapIntensity: 2.2
+  });
+  const gunMetal = new THREE.MeshStandardMaterial({
+    color: 0x334155,
+    roughness: 0.14,
+    metalness: 0.95,
+    envMapIntensity: 2.5
+  });
+  const gripMat = new THREE.MeshStandardMaterial({
+    color: 0x0f172a,
+    roughness: 0.55,
+    metalness: 0.45,
+    envMapIntensity: 1.2
+  });
 
   let neonColor = 0x38bdf8;
   if (weaponId === 'shotgun') neonColor = 0xf59e0b;
@@ -20,7 +35,9 @@ export function create3DWeaponMesh(weaponId: WeaponType): THREE.Group {
   if (weaponId === 'crossbow') neonColor = 0xc084fc;
   if (weaponId === 'gauss') neonColor = 0x06b6d4;
 
-  const neonMat = new THREE.MeshBasicMaterial({ color: neonColor });
+  // Boosted HDR color (> 1.0) so UnrealBloomPass creates a rich neon glow around weapon rails & cores!
+  const hdrNeon = new THREE.Color(neonColor).multiplyScalar(2.35);
+  const neonMat = new THREE.MeshBasicMaterial({ color: hdrNeon });
 
   if (weaponId === 'm16') {
     // Main Receiver

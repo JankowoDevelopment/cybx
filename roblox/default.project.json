@@ -1,0 +1,53 @@
+{
+  "name": "CyberArenaRounds",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Shared": {
+        "$path": "src/shared"
+      }
+    },
+    "ServerScriptService": {
+      "Server": {
+        "$path": "src/server"
+      }
+    },
+    "StarterPlayer": {
+      "$properties": {
+        "CameraMode": "LockFirstPerson",
+        "CharacterWalkSpeed": 26,
+        "CharacterUseJumpPower": false,
+        "CharacterJumpHeight": 7.2,
+        "AutoJumpEnabled": false
+      },
+      "StarterPlayerScripts": {
+        "Client": {
+          "$path": "src/client"
+        }
+      },
+      "StarterCharacterScripts": {
+        "$path": "src/character"
+      }
+    },
+    "Players": {
+      "$properties": {
+        "CharacterAutoLoads": false
+      }
+    },
+    "Lighting": {
+      "$properties": {
+        "Technology": "Future",
+        "Ambient": [0.05, 0.06, 0.1],
+        "OutdoorAmbient": [0.08, 0.09, 0.14],
+        "Brightness": 1,
+        "ClockTime": 0,
+        "GlobalShadows": true
+      }
+    },
+    "Workspace": {
+      "$properties": {
+        "FallenPartsDestroyHeight": -50
+      }
+    }
+  }
+}
