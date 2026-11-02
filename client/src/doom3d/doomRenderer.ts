@@ -42,8 +42,6 @@ export class Doom3DRenderer {
   private bloomPass!: UnrealBloomPass;
   private envMapTexture: THREE.Texture | null = null;
   private atmosphereParticles: THREE.Points | null = null;
-  private neonMaterials: { mat: THREE.MeshBasicMaterial; baseHex: number; isReflection?: boolean }[] = [];
-  private reflectiveStdMaterials: THREE.MeshStandardMaterial[] = [];
 
   private textures: DoomTextureSet;
   private weaponRenderer: DoomWeaponRenderer;
@@ -71,9 +69,6 @@ export class Doom3DRenderer {
   private cameraShake: number = 0;
   private lastInputSendTime: number = 0;
   private lastSnapshotTime: number = 0;
-  private lastMoveDirX: number = 0;
-  private lastMoveDirY: number = 0;
-  private instantAccelUntil: number = 0;
 
   // FPS & Culling Telemetry
   private fpsFrameCount: number = 0;
@@ -174,9 +169,9 @@ export class Doom3DRenderer {
 
     this.bloomPass = new UnrealBloomPass(
       new THREE.Vector2(Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2)),
-      0.18, // gentle default strength (controlled by neonIntensity slider)
-      0.38, // radius
-      0.72  // threshold
+      0.75, // strength
+      0.55, // radius
+      0.62  // threshold (only bright HDR neons, bullets & explosions glow!)
     );
     this.composer.addPass(this.bloomPass);
     this.composer.addPass(new OutputPass());
@@ -315,7 +310,6 @@ export class Doom3DRenderer {
 
   private applyGraphicsSettings(): void {
     const s = settingsManager.get();
-    const neonFactor = Math.max(0, Math.min(1, (s.neonIntensity ?? 35) / 100));
 
     if (this.camera.fov !== s.fov) {
       this.camera.fov = s.fov;
@@ -329,37 +323,8 @@ export class Doom3DRenderer {
     this.renderer.setPixelRatio(dpr);
     this.composer?.setPixelRatio(dpr);
 
-    // Gentle exposure & bloom scaled by the single Neon Intensity setting
-    this.renderer.toneMappingExposure = 0.96 + neonFactor * 0.18;
-
     if (this.bloomPass) {
-      this.bloomPass.enabled = s.graphicsQuality !== 'low' && neonFactor > 0.02;
-      this.bloomPass.strength = neonFactor * 0.45;
-      this.bloomPass.radius = 0.25 + neonFactor * 0.25;
-    }
-
-    // Update all registered neon materials dynamically
-    for (const item of this.neonMaterials) {
-      if (item.isReflection) {
-        const mult = 0.25 + neonFactor * 0.75;
-        item.mat.color.setHex(item.baseHex).multiplyScalar(mult);
-        item.mat.opacity = 0.1 + neonFactor * 0.35;
-      } else {
-        const mult = 0.45 + neonFactor * 1.15;
-        item.mat.color.setHex(item.baseHex).multiplyScalar(mult);
-      }
-    }
-
-    // Update reflective surfaces intensity
-    for (const stdMat of this.reflectiveStdMaterials) {
-      stdMat.envMapIntensity = 0.6 + neonFactor * 1.4;
-    }
-
-    // Keep floating dust particles very subtle
-    if (this.atmosphereParticles) {
-      const pMat = this.atmosphereParticles.material as THREE.PointsMaterial;
-      pMat.opacity = 0.04 + neonFactor * 0.14;
-      this.atmosphereParticles.visible = neonFactor > 0.05;
+      this.bloomPass.enabled = s.graphicsQuality !== 'low';
     }
 
     if (this.renderer.shadowMap.enabled !== s.shadowsEnabled) {
@@ -424,20 +389,19 @@ export class Doom3DRenderer {
     this.explosionFlashLight.position.set(0, -500, 0);
     this.scene.add(this.explosionFlashLight);
 
-    // Rotating Floating Cyber-Reactor above Center Citadel
-    const reactorGeo = new THREE.OctahedronGeometry(44, 1);
+    // Rotating Floating Cyber-Reactor above Center Citadel (Boosted HDR Emissive for Bloom!)
+    const reactorGeo = new THREE.OctahedronGeometry(46, 1);
     const reactorMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0xf59e0b).multiplyScalar(0.85),
+      color: new THREE.Color(0xf59e0b).multiplyScalar(2.6),
       wireframe: true
     });
-    this.neonMaterials.push({ mat: reactorMat, baseHex: 0xf59e0b });
     this.centerReactorMesh = new THREE.Mesh(reactorGeo, reactorMat);
     this.centerReactorMesh.position.set(mapW / 2, 195, mapH / 2);
     this.scene.add(this.centerReactorMesh);
 
-    // 2. Starfield Night Sky + Holographic Cyber-Dome + Subtle Atmospheric Dust
+    // 2. Starfield Night Sky + Holographic Cyber-Dome + Floating Atmospheric Neon Embers
     const starGeo = new THREE.BufferGeometry();
-    const starCount = 900;
+    const starCount = 1200;
     const starPos = new Float32Array(starCount * 3);
     for (let i = 0; i < starCount; i++) {
       const theta = Math.random() * Math.PI * 2;
@@ -448,22 +412,23 @@ export class Doom3DRenderer {
       starPos[i * 3 + 2] = mapH / 2 + r * Math.sin(phi) * Math.sin(theta);
     }
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-    const starMat = new THREE.PointsMaterial({ color: 0x94a3b8, size: 6, transparent: true, opacity: 0.55 });
+    const starMat = new THREE.PointsMaterial({ color: 0xe0f2fe, size: 8, transparent: true, opacity: 0.85 });
     this.scene.add(new THREE.Points(starGeo, starMat));
 
-    // Very subtle, barely-visible ambient dust particles (never distracting!)
-    const emberCount = 85;
+    // Atmospheric Floating Neon Dust / Cyber-Embers across the arena
+    const emberCount = 420;
     const emberGeo = new THREE.BufferGeometry();
     const emberPos = new Float32Array(emberCount * 3);
     const emberCol = new Float32Array(emberCount * 3);
     const palette = [
-      new THREE.Color(0x38bdf8).multiplyScalar(0.55),
-      new THREE.Color(0x94a3b8).multiplyScalar(0.5),
-      new THREE.Color(0x64748b).multiplyScalar(0.5)
+      new THREE.Color(0x38bdf8).multiplyScalar(2.0),
+      new THREE.Color(0xec4899).multiplyScalar(2.0),
+      new THREE.Color(0xfbbf24).multiplyScalar(2.0),
+      new THREE.Color(0xa855f7).multiplyScalar(2.0)
     ];
     for (let i = 0; i < emberCount; i++) {
       emberPos[i * 3] = 200 + Math.random() * (mapW - 400);
-      emberPos[i * 3 + 1] = 12 + Math.random() * 160;
+      emberPos[i * 3 + 1] = 8 + Math.random() * 190;
       emberPos[i * 3 + 2] = 200 + Math.random() * (mapH - 400);
       const c = palette[i % palette.length];
       emberCol[i * 3] = c.r;
@@ -473,10 +438,10 @@ export class Doom3DRenderer {
     emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
     emberGeo.setAttribute('color', new THREE.BufferAttribute(emberCol, 3));
     const emberMat = new THREE.PointsMaterial({
-      size: 1.8,
+      size: 5.5,
       vertexColors: true,
       transparent: true,
-      opacity: 0.09,
+      opacity: 0.78,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     });
@@ -485,10 +450,10 @@ export class Doom3DRenderer {
 
     const domeGeo = new THREE.SphereGeometry(3800, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);
     const domeMat = new THREE.MeshBasicMaterial({
-      color: 0x0284c7,
+      color: new THREE.Color(0x0284c7).multiplyScalar(1.4),
       wireframe: true,
       transparent: true,
-      opacity: 0.06
+      opacity: 0.12
     });
     const domeMesh = new THREE.Mesh(domeGeo, domeMat);
     domeMesh.position.set(mapW / 2, -60, mapH / 2);
@@ -498,6 +463,7 @@ export class Doom3DRenderer {
     const floorGeo = new THREE.PlaneGeometry(1, 1);
     floorGeo.rotateX(-Math.PI / 2);
 
+    // Deep sub-floor dark backdrop so inverted under-floor reflections look like a deep glossy mirror
     const abyssMesh = new THREE.Mesh(
       floorGeo,
       new THREE.MeshBasicMaterial({ color: 0x02040a })
@@ -515,13 +481,12 @@ export class Doom3DRenderer {
           map: floorTex,
           bumpMap: floorTex,
           bumpScale: 1.4,
-          roughness: 0.14,
-          metalness: 0.86,
-          envMapIntensity: 1.1,
+          roughness: 0.11,
+          metalness: 0.90,
+          envMapIntensity: 2.8,
           transparent: true,
-          opacity: 0.87
+          opacity: 0.82
         });
-        this.reflectiveStdMaterials.push(floorMat);
 
         const floorMesh = new THREE.Mesh(floorGeo, floorMat);
         floorMesh.position.set(room.x + room.w / 2, 0, room.y + room.h / 2);
@@ -531,55 +496,51 @@ export class Doom3DRenderer {
       }
     }
 
-    // 4. 3D Cyber-Walls & Pillars with Metallic Reflections, Adjustable Neon Glow & Subtle Floor Reflections
+    // 4. 3D Cyber-Walls & Pillars with Metallic Reflections, HDR Neon Glow & Under-Floor Fake Ray-Traced Reflections!
     const brickMat = new THREE.MeshStandardMaterial({
       map: this.textures.wallBrick,
       bumpMap: this.textures.wallBrick,
       bumpScale: 2.0,
-      roughness: 0.2,
-      metalness: 0.85,
-      envMapIntensity: 1.1
+      roughness: 0.18,
+      metalness: 0.88,
+      envMapIntensity: 2.4
     });
     const perimeterMat = new THREE.MeshStandardMaterial({
       map: this.textures.wallPerimeter,
       bumpMap: this.textures.wallPerimeter,
       bumpScale: 1.8,
-      roughness: 0.18,
-      metalness: 0.88,
-      envMapIntensity: 1.1
+      roughness: 0.16,
+      metalness: 0.90,
+      envMapIntensity: 2.4
     });
-    this.reflectiveStdMaterials.push(brickMat, perimeterMat);
 
-    // Neon materials registered for live slider control (default 35% is soft and easy on the eyes!)
-    const cyanNeonMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
-    const redNeonMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
-    const purpleNeonMat = new THREE.MeshBasicMaterial({ color: 0xa855f7 });
-    this.neonMaterials.push(
-      { mat: cyanNeonMat, baseHex: 0x38bdf8 },
-      { mat: redNeonMat, baseHex: 0xef4444 },
-      { mat: purpleNeonMat, baseHex: 0xa855f7 }
-    );
+    // HDR Neon Colors (> 1.0) trigger intense UnrealBloomPass glow!
+    const cyanNeonMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0x38bdf8).multiplyScalar(2.7)
+    });
+    const redNeonMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0xef4444).multiplyScalar(2.6)
+    });
+    const purpleNeonMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0xa855f7).multiplyScalar(2.4)
+    });
 
-    // Reflected under-floor materials
+    // Reflected under-floor materials (visible through the 82% glossy floor!)
     const reflWallMat = new THREE.MeshBasicMaterial({
       color: 0x0c192e,
       transparent: true,
-      opacity: 0.35
+      opacity: 0.45
     });
     const reflCyanNeonMat = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
+      color: new THREE.Color(0x38bdf8).multiplyScalar(1.85),
       transparent: true,
-      opacity: 0.22
+      opacity: 0.65
     });
     const reflRedNeonMat = new THREE.MeshBasicMaterial({
-      color: 0xef4444,
+      color: new THREE.Color(0xef4444).multiplyScalar(1.85),
       transparent: true,
-      opacity: 0.22
+      opacity: 0.65
     });
-    this.neonMaterials.push(
-      { mat: reflCyanNeonMat, baseHex: 0x38bdf8, isReflection: true },
-      { mat: reflRedNeonMat, baseHex: 0xef4444, isReflection: true }
-    );
 
     for (const wall of this.mapData.walls) {
       const h = wall.isPerimeter ? wallHeight * 1.4 : wallHeight;
@@ -636,9 +597,10 @@ export class Doom3DRenderer {
       this.doorMeshes.set(door.id, mesh);
     }
 
-    // 6. 3D Weapon Wall-Buy Hologram Pedestals (with Adjustable Neon Rings)
-    const hdrPedRingMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
-    this.neonMaterials.push({ mat: hdrPedRingMat, baseHex: 0x38bdf8 });
+    // 6. 3D Weapon Wall-Buy Hologram Pedestals (with HDR Neon Rings & Floor Reflection)
+    const hdrPedRingMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0x38bdf8).multiplyScalar(2.6)
+    });
     for (const wb of this.mapData.wallBuys) {
       const pedGroup = new THREE.Group();
       pedGroup.position.set(wb.x, 0, wb.y);
@@ -880,21 +842,7 @@ export class Doom3DRenderer {
       }
 
       if (this.cardDraftModal.isOpen || this.settingsModal.isOpen) return;
-      const wasPressed = this.pressedKeys.has(e.code);
       this.pressedKeys.add(e.code);
-
-      // Force immediate input packet send on fresh movement/sprint key press (zero input lag!)
-      if (
-        !wasPressed &&
-        (e.code === 'KeyW' ||
-          e.code === 'KeyA' ||
-          e.code === 'KeyS' ||
-          e.code === 'KeyD' ||
-          e.code === 'ShiftLeft' ||
-          e.code === 'ShiftRight')
-      ) {
-        this.lastInputSendTime = 0;
-      }
 
       if (this.latestSnapshot?.roundState === 'active') {
         if (e.code === 'KeyR') {
@@ -909,16 +857,6 @@ export class Doom3DRenderer {
 
     window.addEventListener('keyup', (e) => {
       this.pressedKeys.delete(e.code);
-      if (
-        e.code === 'KeyW' ||
-        e.code === 'KeyA' ||
-        e.code === 'KeyS' ||
-        e.code === 'KeyD' ||
-        e.code === 'ShiftLeft' ||
-        e.code === 'ShiftRight'
-      ) {
-        this.lastInputSendTime = 0;
-      }
     });
 
     window.addEventListener('resize', () => {
@@ -1237,14 +1175,12 @@ export class Doom3DRenderer {
 
       let forward = 0;
       let strafe = 0;
-      let isSprinting = false;
 
       if (!this.settingsModal.isOpen && !this.cardDraftModal.isOpen) {
         if (this.pressedKeys.has('KeyW') || this.pressedKeys.has('ArrowUp')) forward += 1;
         if (this.pressedKeys.has('KeyS') || this.pressedKeys.has('ArrowDown')) forward -= 1;
         if (this.pressedKeys.has('KeyA') || this.pressedKeys.has('ArrowLeft')) strafe -= 1;
         if (this.pressedKeys.has('KeyD') || this.pressedKeys.has('ArrowRight')) strafe += 1;
-        isSprinting = this.pressedKeys.has('ShiftLeft') || this.pressedKeys.has('ShiftRight');
       }
 
       isMoving = forward !== 0 || strafe !== 0;
@@ -1281,22 +1217,7 @@ export class Doom3DRenderer {
         }
       }
 
-      // Instant Acceleration Boost when tapping WASD or changing movement direction!
-      if (isMoving) {
-        const dirChanged =
-          Math.abs(moveX - this.lastMoveDirX) > 0.35 || Math.abs(moveY - this.lastMoveDirY) > 0.35;
-        if (dirChanged) {
-          this.instantAccelUntil = timestamp + 95;
-          this.lastInputSendTime = 0; // Dispatch direction change immediately to server!
-        }
-      }
-      this.lastMoveDirX = moveX;
-      this.lastMoveDirY = moveY;
-
       let speed = SERVER_CONFIG.PLAYER_BASE_SPEED;
-      if (isSprinting && isMoving) {
-        speed *= SERVER_CONFIG.PLAYER_SPRINT_MULT;
-      }
       for (const cardId of localPlayer.cards || []) {
         const card = ROUNDS_CARDS.find((c) => c.id === cardId);
         if (card?.stats.moveSpeedPct) {
@@ -1314,9 +1235,8 @@ export class Doom3DRenderer {
       }
 
       if (!localPlayer.downed && !localPlayer.isDead && snapshot?.roundState === 'active') {
-        const instantBoost = timestamp < this.instantAccelUntil ? 1.28 : 1.0;
-        const deltaX = moveX * speed * instantBoost * dtSec;
-        const deltaY = moveY * speed * instantBoost * dtSec;
+        const deltaX = moveX * speed * dtSec;
+        const deltaY = moveY * speed * dtSec;
         const resolved = resolveMovement(
           this.predictedX,
           this.predictedZ,
@@ -1332,16 +1252,11 @@ export class Doom3DRenderer {
         const errZ = localPlayer.y - this.predictedZ;
         const distSq = errX * errX + errZ * errZ;
 
-        // Non-rubberbanding reconciliation: don't pull the player back toward old server snapshots during rapid WASD strafes!
-        if (distSq > 140 * 140) {
+        if (distSq > 120 * 120) {
           this.predictedX = localPlayer.x;
           this.predictedZ = localPlayer.y;
-        } else if (isMoving && distSq > 48 * 48) {
-          const blend = Math.min(1, dtSec * 3.5);
-          this.predictedX += errX * blend;
-          this.predictedZ += errZ * blend;
-        } else if (!isMoving && distSq > 16 * 16) {
-          const blend = Math.min(1, dtSec * 6.0);
+        } else if (distSq > 0.04) {
+          const blend = Math.min(1, dtSec * 15);
           this.predictedX += errX * blend;
           this.predictedZ += errZ * blend;
         }
@@ -1388,8 +1303,8 @@ export class Doom3DRenderer {
 
       const serverYaw = Math.atan2(forwardDir.z, forwardDir.x);
 
-      // Throttle network input packets to ~33Hz (30ms), or immediately when movement keys change!
-      if (snapshot?.roundState === 'active' && timestamp - this.lastInputSendTime >= 25) {
+      // Throttle network input packets to ~33Hz (30ms) to keep WebSocket & Server CPU fast
+      if (snapshot?.roundState === 'active' && timestamp - this.lastInputSendTime >= 30) {
         this.lastInputSendTime = timestamp;
         networkManager.send({
           type: 'input',
@@ -1397,7 +1312,6 @@ export class Doom3DRenderer {
           down: forward < 0,
           left: strafe < 0,
           right: strafe > 0,
-          sprint: isSprinting,
           moveX,
           moveY,
           yaw: serverYaw,
@@ -1779,9 +1693,9 @@ export class Doom3DRenderer {
       const entry = this.bulletPool[poolIdx++];
       const radius = b.bulletRadius || 5;
       const spriteSize = Math.min(82, Math.max(10, radius * 3.2));
-      const neonBoost = 0.75 + (settingsManager.get().neonIntensity / 100) * 1.1;
 
-      entry.spriteMat.color.setHex(col).multiplyScalar(neonBoost);
+      // Boost bullet & tracer HDR color so UnrealBloomPass makes projectiles glow intensely!
+      entry.spriteMat.color.setHex(col).multiplyScalar(2.4);
       entry.sprite.scale.set(spriteSize, spriteSize, 1);
       entry.sprite.position.set(bx, 24, bz);
       entry.sprite.visible = true;
@@ -1790,7 +1704,7 @@ export class Doom3DRenderer {
       const tracerLen = Math.min(48, Math.max(12, speed * 0.028));
       const yawAngle = Math.atan2(b.vx, b.vy);
 
-      entry.tracerMat.color.setHex(col).multiplyScalar(neonBoost);
+      entry.tracerMat.color.setHex(col).multiplyScalar(2.4);
       entry.tracer.scale.set(Math.max(1, radius * 0.25), Math.max(1, radius * 0.25), tracerLen);
       entry.tracer.rotation.set(0, yawAngle, 0);
       entry.tracer.position.set(
@@ -1840,23 +1754,22 @@ export class Doom3DRenderer {
         botCap.position.y = 1.5;
         barrelGroup.add(topCap, botCap);
 
-        const neonBoost = 0.7 + (settingsManager.get().neonIntensity / 100) * 1.1;
         const glowRing = new THREE.Mesh(
           new THREE.TorusGeometry(10, 1.5, 8, 18),
-          new THREE.MeshBasicMaterial({ color: new THREE.Color(0xef4444).multiplyScalar(neonBoost) })
+          new THREE.MeshBasicMaterial({ color: new THREE.Color(0xef4444).multiplyScalar(2.8) })
         );
         glowRing.rotation.x = Math.PI / 2;
         glowRing.position.y = 35.2;
         glowRing.name = 'hazard_ring';
         barrelGroup.add(glowRing);
 
-        // Subtle Under-floor Reflection Ring for Barrel
+        // Under-floor Fake Ray-Traced Reflection Ring for Barrel
         const reflRing = new THREE.Mesh(
           new THREE.TorusGeometry(13, 1.8, 8, 18),
           new THREE.MeshBasicMaterial({
-            color: new THREE.Color(0xef4444).multiplyScalar(neonBoost * 0.6),
+            color: new THREE.Color(0xef4444).multiplyScalar(1.8),
             transparent: true,
-            opacity: 0.22
+            opacity: 0.55
           })
         );
         reflRing.rotation.x = Math.PI / 2;

@@ -207,7 +207,7 @@ export interface GameSnapshot {
 export type ClientPacket =
   | { type: 'join_room'; playerName: string; roomCode?: string }
   | { type: 'start_game' }
-  | { type: 'input'; up: boolean; down: boolean; left: boolean; right: boolean; sprint?: boolean; mouseX: number; mouseY: number; shoot: boolean; yaw?: number; moveX?: number; moveY?: number }
+  | { type: 'input'; up: boolean; down: boolean; left: boolean; right: boolean; mouseX: number; mouseY: number; shoot: boolean; yaw?: number; moveX?: number; moveY?: number }
   | { type: 'dash' }
   | { type: 'grenade'; targetX: number; targetY: number }
   | { type: 'reload' }

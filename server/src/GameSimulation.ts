@@ -25,7 +25,6 @@ export interface PlayerInput {
   down: boolean;
   left: boolean;
   right: boolean;
-  sprint?: boolean;
   mouseX: number;
   mouseY: number;
   shoot: boolean;
@@ -66,7 +65,6 @@ export class GameSimulation {
   };
 
   private playerLastShot: Map<string, number> = new Map();
-  private playerLastMoveDir: Map<string, { mx: number; my: number; boostUntil: number }> = new Map();
   private pendingBursts: { playerId: string; shotsLeft: number; nextShotTime: number; intervalMs: number }[] = [];
   private zombieLastAttack: Map<string, number> = new Map();
   private lastExplosionBroadcastTime: number = 0;
@@ -698,11 +696,8 @@ export class GameSimulation {
         player.hp = Math.min(player.maxHp, player.hp + regenPerSec * dtSec);
       }
 
-      // Movement Speed (Sprint under Shift + instant acceleration response)
+      // Movement Speed
       let speed = SERVER_CONFIG.PLAYER_BASE_SPEED;
-      if (input?.sprint) {
-        speed *= SERVER_CONFIG.PLAYER_SPRINT_MULT;
-      }
       for (const cardId of (player.cards || [])) {
         const card = ROUNDS_CARDS.find((c) => c.id === cardId);
         if (card?.stats.moveSpeedPct) {
@@ -738,21 +733,8 @@ export class GameSimulation {
           }
         }
 
-        const isMovingNow = moveX !== 0 || moveY !== 0;
-        const prevDir = this.playerLastMoveDir.get(player.id) || { mx: 0, my: 0, boostUntil: 0 };
-        if (isMovingNow) {
-          const dirChanged = Math.abs(moveX - prevDir.mx) > 0.35 || Math.abs(moveY - prevDir.my) > 0.35;
-          if (dirChanged) {
-            prevDir.boostUntil = now + 95;
-          }
-        }
-        prevDir.mx = moveX;
-        prevDir.my = moveY;
-        this.playerLastMoveDir.set(player.id, prevDir);
-
-        const instantBoost = now < prevDir.boostUntil ? 1.28 : 1.0;
-        const deltaX = moveX * speed * instantBoost * dtSec;
-        const deltaY = moveY * speed * instantBoost * dtSec;
+        const deltaX = moveX * speed * dtSec;
+        const deltaY = moveY * speed * dtSec;
 
         // Axis-separated collision with sliding against arena walls & pillars
         const resolved = resolveMovement(

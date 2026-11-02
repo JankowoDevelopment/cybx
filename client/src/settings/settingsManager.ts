@@ -7,14 +7,13 @@ export interface GameSettings {
   spatialAudio: boolean; // 3D directional stereo + distance + wall occlusion muffling
   mouseSensitivity: number; // 0.2 to 3.0 (multiplier)
   fov: number; // 60 to 110
-  neonIntensity: number; // 0 to 100 (default 35 - gentle on the eyes!)
   graphicsQuality: GraphicsQuality;
   shadowsEnabled: boolean;
   occlusionCulling: boolean; // Culls bullets/barrels/VFX behind player or behind walls (keeps player models visible)
   showFps: boolean;
 }
 
-const STORAGE_KEY = 'cyber_arena_settings_v2';
+const STORAGE_KEY = 'cyber_arena_settings_v1';
 
 const DEFAULT_SETTINGS: GameSettings = {
   masterVolume: 75,
@@ -23,7 +22,6 @@ const DEFAULT_SETTINGS: GameSettings = {
   spatialAudio: true,
   mouseSensitivity: 1.0,
   fov: 75,
-  neonIntensity: 35,
   graphicsQuality: 'high',
   shadowsEnabled: true,
   occlusionCulling: true,
