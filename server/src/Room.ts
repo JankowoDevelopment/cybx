@@ -54,6 +54,15 @@ export class Room {
         shooterId
       });
     };
+
+    this.simulation.onExplosionEvent = (x, y, radius) => {
+      this.broadcast({
+        type: 'explosion_event',
+        x,
+        y,
+        radius
+      });
+    };
   }
 
   public addClient(client: RoomClient): boolean {
@@ -201,6 +210,9 @@ export class Room {
     };
     this.simulation.onHitEvent = (x, y, damage, isKill, isWall, shooterId) => {
       this.broadcast({ type: 'hit_event', x, y, damage, isKill, isWall, shooterId });
+    };
+    this.simulation.onExplosionEvent = (x, y, radius) => {
+      this.broadcast({ type: 'explosion_event', x, y, radius });
     };
 
     for (const c of playersCopy) {

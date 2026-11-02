@@ -98,6 +98,7 @@ export interface BulletState {
   bouncesLeft: number;
   bulletRadius: number;
   damage: number;
+  explosiveRadius?: number;
   isTesla?: boolean;
   isFrost?: boolean;
 }
@@ -159,6 +160,14 @@ export interface ActivePowerUps {
   doublePoints: number; // remaining ms
 }
 
+export interface BarrelState {
+  id: string;
+  x: number;
+  y: number;
+  hp: number;
+  isExploded: boolean;
+}
+
 export interface GameSnapshot {
   round: number;
   roundState: RoundState;
@@ -169,6 +178,7 @@ export interface GameSnapshot {
   grenades: GrenadeState[];
   powerUps: PowerUpState[];
   doors: DoorState[];
+  barrels: BarrelState[];
   mysteryBox?: MysteryBoxState;
   activePowerUps: ActivePowerUps;
   cardPickerId: string | null;
@@ -196,6 +206,7 @@ export type ServerPacket =
   | { type: 'game_init'; map: any; wallBuys: WallBuyState[]; doors: DoorState[]; mysteryBox?: MysteryBoxState }
   | { type: 'snapshot'; state: GameSnapshot }
   | { type: 'sound_event'; sound: 'shoot' | 'reload' | 'zombie_groan' | 'zombie_death' | 'hit' | 'round_start' | 'round_end' | 'buy' | 'nuke' | 'mystery_box' | 'downed' | 'revived' | 'dash' | 'explosion'; weapon?: WeaponType; shooterId?: string }
+  | { type: 'explosion_event'; x: number; y: number; radius: number }
   | { type: 'game_event'; event: string; text?: string; color?: string }
   | { type: 'hit_event'; x: number; y: number; damage: number; isKill: boolean; isWall: boolean; shooterId: string }
   | { type: 'error'; message: string };

@@ -12,6 +12,7 @@ export class NetworkManager {
   public onGameInit?: (data: { map: any; doors: DoorState[]; wallBuys: WallBuyState[]; mysteryBox?: MysteryBoxState }) => void;
   public onSnapshot?: (snapshot: GameSnapshot) => void;
   public onSoundEvent?: (sound: string, weapon?: any, shooterId?: string) => void;
+  public onExplosionEvent?: (x: number, y: number, radius: number) => void;
   public onGameEvent?: (event: string, text?: string, color?: string) => void;
   public onHitEvent?: (data: { x: number; y: number; damage: number; isKill: boolean; isWall: boolean; shooterId: string }) => void;
   public onError?: (msg: string) => void;
@@ -70,6 +71,10 @@ export class NetworkManager {
 
       case 'sound_event':
         this.onSoundEvent?.(packet.sound, packet.weapon, packet.shooterId);
+        break;
+
+      case 'explosion_event':
+        this.onExplosionEvent?.(packet.x, packet.y, packet.radius);
         break;
 
       case 'game_event':

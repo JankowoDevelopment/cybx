@@ -9,7 +9,8 @@ import {
   MysteryBoxState,
   GameSnapshot,
   WeaponType,
-  PowerUpType
+  PowerUpType,
+  BarrelState
 } from '../../shared/types.js';
 import { createDefaultMap, MapData, WallRect } from '../../shared/map.js';
 import { WEAPONS } from '../../shared/weapons.js';
@@ -42,6 +43,7 @@ export class GameSimulation {
   public powerUps: PowerUpState[] = [];
   public doors: DoorState[] = [];
   public wallBuys: WallBuyState[] = [];
+  public barrels: BarrelState[] = [];
   public mysteryBox?: MysteryBoxState;
 
   public round: number = 1;
@@ -51,6 +53,8 @@ export class GameSimulation {
   public cardPickerName: string | null = null;
   public offeredCards: string[] = [];
   public roundWinnerName: string | null = null;
+  public eliminatedOrder: string[] = [];
+  public cardPickQueue: string[] = [];
   public zombiesToSpawnThisRound: number = 0;
   public zombiesSpawnedThisRound: number = 0;
   public zombieSpawnCooldown: number = 0;
@@ -67,11 +71,13 @@ export class GameSimulation {
   public onSoundEvent?: (sound: any, weapon?: WeaponType, shooterId?: string) => void;
   public onGameEvent?: (event: string, text?: string, color?: string) => void;
   public onHitEvent?: (x: number, y: number, damage: number, isKill: boolean, isWall: boolean, shooterId: string) => void;
+  public onExplosionEvent?: (x: number, y: number, radius: number) => void;
 
   constructor() {
     this.map = createDefaultMap();
     this.doors = JSON.parse(JSON.stringify(this.map.initialDoors));
     this.wallBuys = JSON.parse(JSON.stringify(this.map.wallBuys));
+    this.barrels = JSON.parse(JSON.stringify(this.map.initialBarrels || []));
     this.mysteryBox = this.map.mysteryBox ? JSON.parse(JSON.stringify(this.map.mysteryBox)) : undefined;
   }
 
@@ -130,6 +136,11 @@ export class GameSimulation {
     this.players.delete(id);
     this.playerInputs.delete(id);
     this.playerLastShot.delete(id);
+    this.eliminatedOrder = this.eliminatedOrder.filter((pid) => pid !== id);
+    this.cardPickQueue = this.cardPickQueue.filter((pid) => pid !== id);
+    if (this.cardPickerId === id) {
+      this.advanceCardPickQueue();
+    }
   }
 
   public setPlayerInput(id: string, input: PlayerInput): void {
@@ -143,6 +154,8 @@ export class GameSimulation {
     this.cardPickerId = null;
     this.cardPickerName = null;
     this.offeredCards = [];
+    this.eliminatedOrder = [];
+    this.cardPickQueue = [];
 
     // Reset stats & respawn players at arena sides
     const playerIds = Array.from(this.players.keys());
@@ -161,6 +174,8 @@ export class GameSimulation {
       p.x = spawn.x;
       p.y = spawn.y;
     }
+
+    this.barrels = JSON.parse(JSON.stringify(this.map.initialBarrels || []));
 
     this.onGameEvent?.('round_start', `⚔ ROUNDS 1v1v1v1: RUNDA 1 ROZPOCZĘTA!`, '#ef4444');
     this.onSoundEvent?.('round_start');
@@ -193,14 +208,39 @@ export class GameSimulation {
 
     if (!player.cards) player.cards = [];
     player.cards.push(cardId);
+    this.recalculatePlayerStats(player);
 
     const cardDef = ROUNDS_CARDS.find((c) => c.id === cardId);
     const cardName = cardDef ? cardDef.name : cardId;
-    this.onGameEvent?.('card_picked', `🃏 ${player.name} wybrał kartę: [${cardName}]!`, '#fbbf24');
+    this.onGameEvent?.('card_picked', `🃏 ${player.name} wybrał ulepszenie: [${cardName}]!`, '#fbbf24');
     this.onSoundEvent?.('buy');
 
-    // Immediately start next round with upgraded stats
-    this.startNextRound();
+    // Przejdź do kolejnego gracza w kolejce lub rozpocznij nową rundę
+    this.advanceCardPickQueue();
+  }
+
+  public advanceCardPickQueue(): void {
+    if (this.cardPickQueue.length === 0) {
+      // Wszyscy wyeliminowani wybrali już karty -> zaczynamy nową rundę!
+      this.startNextRound();
+      return;
+    }
+
+    const nextPickerId = this.cardPickQueue.shift()!;
+    const picker = this.players.get(nextPickerId);
+    if (!picker) {
+      this.advanceCardPickQueue();
+      return;
+    }
+
+    this.roundState = 'card_pick';
+    this.cardPickerId = picker.id;
+    this.cardPickerName = picker.name;
+    this.offeredCards = this.drawRandomCards(3, picker.cards);
+    this.roundTimer = 15000;
+
+    const deathOrder = this.eliminatedOrder.indexOf(picker.id) + 1;
+    this.onGameEvent?.('card_turn', `🃏 [${picker.name}] (poległ jako ${deathOrder}.) wybiera 1 z 3 kart!`, '#38bdf8');
   }
 
   public startNextRound(): void {
@@ -211,8 +251,12 @@ export class GameSimulation {
     this.cardPickerName = null;
     this.offeredCards = [];
     this.bullets = [];
+    this.eliminatedOrder = [];
+    this.cardPickQueue = [];
 
     // Respawn all players on their side with full HP and fresh magazines
+    // Alternating corners per round: round 1: (NW vs SE), round 2: (NE vs SW), etc.
+    const roundOffset = (this.round - 1) % 2 === 0 ? 0 : 2;
     const playerIds = Array.from(this.players.keys());
     for (let i = 0; i < playerIds.length; i++) {
       const p = this.players.get(playerIds[i])!;
@@ -224,10 +268,14 @@ export class GameSimulation {
       p.ammoReserve = wep.maxReserve;
       p.isReloading = false;
 
-      const spawn = this.map.playerSpawns[i % this.map.playerSpawns.length];
+      const spawnIdx = (roundOffset + i) % this.map.playerSpawns.length;
+      const spawn = this.map.playerSpawns[spawnIdx];
       p.x = spawn.x;
       p.y = spawn.y;
     }
+
+    // Reset all explosive barrels for the new round
+    this.barrels = JSON.parse(JSON.stringify(this.map.initialBarrels || []));
 
     this.onGameEvent?.('round_start', `⚔ RUNDA ${this.round} ROZPOCZĘTA!`, '#ef4444');
     this.onSoundEvent?.('round_start');
@@ -246,6 +294,92 @@ export class GameSimulation {
       }
     }
     return walls;
+  }
+
+  public handlePlayerDeath(target: PlayerState, killerId?: string): void {
+    if (target.isDead) return;
+    target.hp = 0;
+    target.isDead = true;
+    target.deaths++;
+    this.onSoundEvent?.('zombie_death');
+
+    // Zapamiętaj gracza w kolejności śmierci (pierwsza osoba, która poległa, będzie pierwsza w kolejce)
+    if (!this.eliminatedOrder.includes(target.id)) {
+      this.eliminatedOrder.push(target.id);
+    }
+
+    const deathRank = this.eliminatedOrder.length;
+    const shooter = killerId ? this.players.get(killerId) : undefined;
+    if (shooter && shooter.id !== target.id) {
+      this.onGameEvent?.('kill', `💀 [${target.name}] poległ jako ${deathRank}. (pokonany przez ${shooter.name})`, '#ef4444');
+    } else {
+      this.onGameEvent?.('kill', `💥 [${target.name}] poległ jako ${deathRank}. w wybuchu!`, '#ef4444');
+    }
+
+    // Sprawdź ile osób wciąż żyje w tej rundzie
+    const alivePlayers = Array.from(this.players.values()).filter((p) => !p.isDead);
+
+    // KARTY WYBIERAJĄ DOPIERO PO ZOSTAŃIU 1 GRACZA!
+    if (alivePlayers.length <= 1) {
+      if (alivePlayers.length === 1) {
+        const winner = alivePlayers[0];
+        winner.kills++;
+        winner.roundWins = (winner.roundWins || 0) + 1;
+        winner.points += 100;
+        this.roundWinnerName = winner.name;
+        this.onGameEvent?.('round_win', `👑 ${winner.name} ZOSTAŁ OSTATNI I WYGRAŁ RUNDĘ ${this.round}!`, '#22c55e');
+      } else {
+        this.onGameEvent?.('round_tie', `⚠️ REMIS W RUNDZIE ${this.round}!`, '#f59e0b');
+      }
+
+      // Osoby które umarły pierwsze, wybierają karty jako pierwsze!
+      this.cardPickQueue = [...this.eliminatedOrder];
+      this.advanceCardPickQueue();
+    }
+  }
+
+  public triggerExplosion(x: number, y: number, radius: number, maxDamage: number, sourceShooterId?: string): void {
+    this.onSoundEvent?.('explosion');
+    this.onExplosionEvent?.(x, y, radius);
+
+    // 1. Damage & knockback players
+    for (const [_, player] of this.players) {
+      if (player.isDead || player.downed) continue;
+      const dist = Math.hypot(player.x - x, player.y - y);
+      if (dist <= radius) {
+        const factor = Math.max(0.2, 1 - dist / radius);
+        const dmg = Math.round(maxDamage * factor);
+        player.hp -= dmg;
+
+        // Knockback impulse away from explosion epicenter
+        const nx = (player.x - x) / (dist || 1);
+        const ny = (player.y - y) / (dist || 1);
+        player.x += nx * 60 * factor;
+        player.y += ny * 60 * factor;
+
+        const isKill = player.hp <= 0;
+        if (sourceShooterId) {
+          this.onHitEvent?.(player.x, player.y, dmg, isKill, false, sourceShooterId);
+        }
+
+        if (isKill) {
+          this.handlePlayerDeath(player, sourceShooterId);
+        }
+      }
+    }
+
+    // 2. Chain reaction to other nearby barrels!
+    for (const barrel of this.barrels) {
+      if (barrel.isExploded) continue;
+      const dist = Math.hypot(barrel.x - x, barrel.y - y);
+      if (dist <= radius && dist > 1) {
+        barrel.hp = 0;
+        barrel.isExploded = true;
+        setTimeout(() => {
+          this.triggerExplosion(barrel.x, barrel.y, 240, 130, sourceShooterId);
+        }, 90);
+      }
+    }
   }
 
   public triggerDash(playerId: string): void {
@@ -414,6 +548,19 @@ export class GameSimulation {
   public update(dtMs: number): void {
     const dtSec = dtMs / 1000;
     const walls = this.getEffectiveWalls();
+
+    // 0. Wstrzymaj symulację podczas wyboru kart i odliczaj czas wyboru
+    if (this.roundState === 'card_pick') {
+      this.roundTimer = Math.max(0, this.roundTimer - dtMs);
+      if (this.roundTimer <= 0) {
+        if (this.cardPickerId && this.offeredCards.length > 0) {
+          this.pickRoundsCard(this.cardPickerId, this.offeredCards[0]);
+        } else {
+          this.advanceCardPickQueue();
+        }
+      }
+      return;
+    }
 
     // 1. Update Active Power-ups timers
     if (this.activePowerUps.instaKill > 0) {
@@ -602,6 +749,9 @@ export class GameSimulation {
             break;
           } else {
             this.onHitEvent?.(nextX, nextY, 0, false, true, b.shooterId);
+            if (b.explosiveRadius && b.explosiveRadius > 0) {
+              this.triggerExplosion(nextX, nextY, b.explosiveRadius, Math.round(b.damage * 0.9), b.shooterId);
+            }
             break;
           }
         }
@@ -613,6 +763,30 @@ export class GameSimulation {
 
       b.x = nextX;
       b.y = nextY;
+
+      // Check collision with explosive hazard barrels
+      let hitBarrel = false;
+      for (const barrel of this.barrels) {
+        if (barrel.isExploded) continue;
+        const bDist = Math.hypot(b.x - barrel.x, b.y - barrel.y);
+        if (bDist <= 32 + (b.bulletRadius || 3)) {
+          barrel.hp -= b.damage;
+          this.onHitEvent?.(barrel.x, barrel.y, Math.round(b.damage), false, true, b.shooterId);
+          b.pierceLeft--;
+          if (barrel.hp <= 0 && !barrel.isExploded) {
+            barrel.isExploded = true;
+            this.triggerExplosion(barrel.x, barrel.y, 250, 140, b.shooterId);
+          }
+          if (b.pierceLeft <= 0) {
+            hitBarrel = true;
+            break;
+          }
+        }
+      }
+      if (hitBarrel) {
+        this.bullets.splice(i, 1);
+        continue;
+      }
 
       // Continuous collision check against enemy players (1v1v1v1 PvP + Bullet Size)
       for (const [targetId, target] of this.players) {
@@ -651,6 +825,11 @@ export class GameSimulation {
           this.onHitEvent?.(hitResult.hitX, hitResult.hitY, Math.round(damage), isKill, false, b.shooterId);
           this.onSoundEvent?.('hit');
 
+          // Trigger bullet explosion if explosive rounds card equipped
+          if (b.explosiveRadius && b.explosiveRadius > 0) {
+            this.triggerExplosion(hitResult.hitX, hitResult.hitY, b.explosiveRadius, Math.round(b.damage * 0.8), b.shooterId);
+          }
+
           if (shooter) {
             let lifesteal = 0;
             for (const cardId of (shooter.cards || [])) {
@@ -663,25 +842,7 @@ export class GameSimulation {
           }
 
           if (isKill) {
-            target.hp = 0;
-            target.isDead = true;
-            target.deaths++;
-
-            if (shooter) {
-              shooter.kills++;
-              shooter.roundWins = (shooter.roundWins || 0) + 1;
-              shooter.points += 100;
-              this.roundWinnerName = shooter.name;
-              this.onSoundEvent?.('zombie_death');
-              this.onGameEvent?.('kill', `💥 ${shooter.name} WYGRAŁ RUNDĘ ${this.round}!`, '#22c55e');
-            }
-
-            // ROUNDS Format: The player who LOST chooses 1 card out of 3!
-            this.roundState = 'card_pick';
-            this.cardPickerId = target.id;
-            this.cardPickerName = target.name;
-            this.offeredCards = this.drawRandomCards(3, target.cards);
-            this.roundTimer = 15000;
+            this.handlePlayerDeath(target, b.shooterId);
           }
 
           b.pierceLeft--;
@@ -753,6 +914,7 @@ export class GameSimulation {
     let extraPellets = 0;
     let bounceCount = 0;
     let bulletRadius = 5;
+    let explosiveRadius = 0;
     let pierce = weapon.pierceCount;
     let spread = weapon.spread;
     let hasTesla = false;
@@ -767,6 +929,7 @@ export class GameSimulation {
       if (card.stats.bounceCount) bounceCount += card.stats.bounceCount;
       if (card.stats.pierceBonus) pierce += card.stats.pierceBonus;
       if (card.stats.bulletSizePct) bulletRadius *= 1 + card.stats.bulletSizePct / 100;
+      if (card.stats.explosiveRadius) explosiveRadius = Math.max(explosiveRadius, card.stats.explosiveRadius);
       if (card.stats.spreadModifierPct) spread *= Math.max(0.1, 1 + card.stats.spreadModifierPct / 100);
       if (card.stats.hasTesla) hasTesla = true;
       if (card.stats.hasFreeze) hasFrost = true;
@@ -791,6 +954,7 @@ export class GameSimulation {
         bouncesLeft: bounceCount,
         bulletRadius: Math.round(bulletRadius),
         damage: Math.round(damage),
+        explosiveRadius: explosiveRadius > 0 ? explosiveRadius : undefined,
         isTesla: hasTesla,
         isFrost: hasFrost
       });
@@ -904,6 +1068,7 @@ export class GameSimulation {
       grenades: this.grenades,
       powerUps: this.powerUps,
       doors: this.doors,
+      barrels: this.barrels,
       mysteryBox: this.mysteryBox,
       activePowerUps: this.activePowerUps
     };

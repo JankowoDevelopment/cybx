@@ -14,6 +14,8 @@ export interface DoomTextureSet {
   zombies: Record<string, THREE.CanvasTexture[]>;
   bloodParticle: THREE.CanvasTexture;
   sparkParticle: THREE.CanvasTexture;
+  explosiveBarrel: THREE.CanvasTexture;
+  explosionFlame: THREE.CanvasTexture;
 }
 
 export function createDoomTextures(): DoomTextureSet {
@@ -276,6 +278,50 @@ export function createDoomTextures(): DoomTextureSet {
     ctx.fill();
   });
 
+  // 11. Explosive Hazard Barrel (64x64)
+  const explosiveBarrel = makeTex(64, 64, (ctx) => {
+    // Red industrial barrel body
+    ctx.fillStyle = '#b91c1c';
+    ctx.fillRect(0, 0, 64, 64);
+
+    // Dark iron ridges / bands
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(0, 0, 64, 6);
+    ctx.fillRect(0, 18, 64, 5);
+    ctx.fillRect(0, 41, 64, 5);
+    ctx.fillRect(0, 58, 64, 6);
+
+    // Yellow hazard caution stripes in middle
+    ctx.fillStyle = '#eab308';
+    ctx.fillRect(4, 25, 56, 14);
+
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.moveTo(8, 39); ctx.lineTo(16, 25); ctx.lineTo(24, 25); ctx.lineTo(16, 39); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(26, 39); ctx.lineTo(34, 25); ctx.lineTo(42, 25); ctx.lineTo(34, 39); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(44, 39); ctx.lineTo(52, 25); ctx.lineTo(60, 25); ctx.lineTo(52, 39); ctx.fill();
+
+    // Highlights & metal sheen
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.fillRect(8, 6, 8, 52);
+  });
+
+  // 12. Fiery Explosion Shockwave (128x128)
+  const explosionFlame = makeTex(128, 128, (ctx) => {
+    const grad = ctx.createRadialGradient(64, 64, 4, 64, 64, 60);
+    grad.addColorStop(0, '#ffffff');
+    grad.addColorStop(0.2, '#fef08a');
+    grad.addColorStop(0.5, '#f97316');
+    grad.addColorStop(0.8, '#dc2626');
+    grad.addColorStop(1, 'rgba(153, 27, 27, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(64, 64, 60, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
   return {
     wallBrick,
     wallPerimeter,
@@ -289,6 +335,8 @@ export function createDoomTextures(): DoomTextureSet {
     mysteryBox,
     zombies,
     bloodParticle,
-    sparkParticle
+    sparkParticle,
+    explosiveBarrel,
+    explosionFlame
   };
 }

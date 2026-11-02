@@ -24,6 +24,7 @@ export class Doom3DRenderer {
   private hud: DoomHud;
   private shopModal: ShopModal;
   private cardDraftModal: CardDraftModal;
+  private currentDraftPickerId: string | null = null;
 
   // Pointer Lock & Camera Angles
   private yaw: number = 0;
@@ -31,10 +32,11 @@ export class Doom3DRenderer {
   private isPointerLocked: boolean = false;
 
   // Client-Side Prediction & Motion Smoothing
-  private predictedX: number = 300;
-  private predictedZ: number = 900;
+  private predictedX: number = 500;
+  private predictedZ: number = 500;
   private hasInitializedPos: boolean = false;
   private headBobTimer: number = 0;
+  private cameraShake: number = 0;
 
   // Key States
   private pressedKeys: Set<string> = new Set();
@@ -47,6 +49,8 @@ export class Doom3DRenderer {
   private playerSprites: Map<string, THREE.Sprite> = new Map();
   private playerHpBars: Map<string, { sprite: THREE.Sprite; canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture }> = new Map();
   private powerupSprites: Map<string, THREE.Sprite> = new Map();
+  private barrelMeshes: Map<string, THREE.Mesh> = new Map();
+  private activeExplosions: { sprite: THREE.Sprite; light: THREE.PointLight; startTime: number; duration: number; maxRadius: number }[] = [];
 
   // Bullet Tracers
   private activeTracers: { mesh: THREE.Object3D; dieTime: number }[] = [];
@@ -64,10 +68,10 @@ export class Doom3DRenderer {
 
     // Initialize 3D Scene
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x05070a, 0.0012);
+    this.scene.fog = new THREE.FogExp2(0x05070a, 0.00045);
 
-    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 4000);
-    this.camera.position.set(300, 34, 900);
+    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 8000);
+    this.camera.position.set(500, 34, 500);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -285,15 +289,19 @@ export class Doom3DRenderer {
         }
       }
 
-      // ROUNDS Card Draft modal state management
+      // ROUNDS Card Draft modal state management (kolejka wyboru kart po zostaniu 1 gracza)
       if (snapshot.roundState === 'card_pick') {
-        if (!this.cardDraftModal.isOpen && snapshot.offeredCards && snapshot.offeredCards.length > 0) {
-          const isPicker = snapshot.cardPickerId === networkManager.playerId;
-          this.cardDraftModal.showDraft(snapshot.offeredCards, isPicker, snapshot.cardPickerName || 'PRZECIWNIKA');
-          this.hud.setShopOpen(true);
+        const isPicker = snapshot.cardPickerId === networkManager.playerId;
+        if (snapshot.offeredCards && snapshot.offeredCards.length > 0) {
+          if (!this.cardDraftModal.isOpen || this.currentDraftPickerId !== snapshot.cardPickerId) {
+            this.currentDraftPickerId = snapshot.cardPickerId;
+            this.cardDraftModal.showDraft(snapshot.offeredCards, isPicker, snapshot.cardPickerName || 'PRZECIWNIKA');
+            this.hud.setShopOpen(true);
+          }
         }
       } else if (snapshot.roundState === 'active') {
         if (this.cardDraftModal.isOpen) {
+          this.currentDraftPickerId = null;
           this.cardDraftModal.hide();
           this.hud.setShopOpen(false);
         }
@@ -326,6 +334,47 @@ export class Doom3DRenderer {
         this.spawn3DDamageText(hit.x, hit.y, hit.damage, hit.isKill);
       }
     };
+
+    networkManager.onExplosionEvent = (x, y, radius) => {
+      this.spawn3DExplosion(x, y, radius);
+    };
+  }
+
+  private spawn3DExplosion(x: number, y: number, radius: number): void {
+    soundSystem.playSound('explosion');
+
+    // Fiery shockwave billboard
+    const mat = new THREE.SpriteMaterial({
+      map: this.textures.explosionFlame,
+      transparent: true,
+      blending: THREE.AdditiveBlending
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.position.set(x, 24, y);
+    sprite.scale.set(radius * 0.4, radius * 0.4, 1);
+    this.scene.add(sprite);
+
+    // Dynamic bright flash point light
+    const light = new THREE.PointLight(0xff6600, 5.0, radius * 2.2);
+    light.position.set(x, 30, y);
+    this.scene.add(light);
+
+    this.activeExplosions.push({
+      sprite,
+      light,
+      startTime: performance.now(),
+      duration: 500,
+      maxRadius: radius * 1.5
+    });
+
+    this.spawn3DDamageText(x, y, 99999, true);
+
+    // Camera shake if nearby
+    const dist = Math.hypot(this.predictedX - x, this.predictedZ - y);
+    if (dist < radius * 2.2) {
+      const intensity = Math.max(0.15, 1 - dist / (radius * 2.2));
+      this.cameraShake = Math.min(1.0, this.cameraShake + intensity * 0.6);
+    }
   }
 
   private spawn3DDamageText(x: number, y: number, damage: number, isKill: boolean): void {
@@ -536,6 +585,7 @@ export class Doom3DRenderer {
       this.updateZombies(snapshot.zombies, dtSec);
       this.updateOpponents(snapshot.players, dtSec);
       this.updatePowerups(snapshot.powerUps);
+      this.updateBarrels(snapshot.barrels);
       this.update3DTracers(snapshot);
     }
 
@@ -554,7 +604,32 @@ export class Doom3DRenderer {
       }
     }
 
-    // 4. Render 3D Scene
+    // 4. Update Explosions (expanding fireball & fading light)
+    for (let i = this.activeExplosions.length - 1; i >= 0; i--) {
+      const exp = this.activeExplosions[i];
+      const elapsed = timestamp - exp.startTime;
+      if (elapsed >= exp.duration) {
+        this.scene.remove(exp.sprite);
+        this.scene.remove(exp.light);
+        exp.sprite.material.dispose();
+        this.activeExplosions.splice(i, 1);
+      } else {
+        const pct = elapsed / exp.duration;
+        const curScale = THREE.MathUtils.lerp(exp.maxRadius * 0.3, exp.maxRadius, Math.sin(pct * Math.PI * 0.5));
+        exp.sprite.scale.set(curScale, curScale, 1);
+        (exp.sprite.material as THREE.SpriteMaterial).opacity = Math.max(0, 1 - pct);
+        exp.light.intensity = 5.0 * (1 - pct);
+      }
+    }
+
+    // 5. Apply Camera Shake from explosions
+    if (this.cameraShake > 0.001) {
+      this.camera.rotation.y += (Math.random() - 0.5) * this.cameraShake * 0.08;
+      this.camera.rotation.x += (Math.random() - 0.5) * this.cameraShake * 0.08;
+      this.cameraShake = Math.max(0, this.cameraShake - dtSec * 2.2);
+    }
+
+    // 6. Render 3D Scene
     this.renderer.render(this.scene, this.camera);
 
     requestAnimationFrame((t) => this.renderLoop(t));
@@ -874,6 +949,43 @@ export class Doom3DRenderer {
     this.hud.setPrompt(null);
   }
 
+  private updateBarrels(barrels: any[]): void {
+    if (!barrels) return;
+    const activeIds = new Set<string>();
+
+    for (const b of barrels) {
+      if (b.isExploded) continue;
+      activeIds.add(b.id);
+
+      let mesh = this.barrelMeshes.get(b.id);
+      if (!mesh) {
+        // Red industrial hazard barrel 3D cylinder
+        const geo = new THREE.CylinderGeometry(14, 14, 34, 12);
+        const mat = new THREE.MeshBasicMaterial({ map: this.textures.explosiveBarrel });
+        mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(b.x, 17, b.y);
+        this.scene.add(mesh);
+        this.barrelMeshes.set(b.id, mesh);
+      } else {
+        mesh.position.set(b.x, 17, b.y);
+      }
+    }
+
+    // Remove exploded barrels from 3D scene
+    for (const [id, mesh] of this.barrelMeshes) {
+      if (!activeIds.has(id)) {
+        this.scene.remove(mesh);
+        mesh.geometry.dispose();
+        if (Array.isArray(mesh.material)) {
+          mesh.material.forEach((m) => m.dispose());
+        } else {
+          mesh.material.dispose();
+        }
+        this.barrelMeshes.delete(id);
+      }
+    }
+  }
+
   public destroy(): void {
     this.isRunning = false;
     for (const [_, hpBar] of this.playerHpBars) {
@@ -881,6 +993,20 @@ export class Doom3DRenderer {
       hpBar.sprite.material.dispose();
     }
     this.playerHpBars.clear();
+
+    for (const [_, mesh] of this.barrelMeshes) {
+      this.scene.remove(mesh);
+      mesh.geometry.dispose();
+    }
+    this.barrelMeshes.clear();
+
+    for (const exp of this.activeExplosions) {
+      this.scene.remove(exp.sprite);
+      this.scene.remove(exp.light);
+      exp.sprite.material.dispose();
+    }
+    this.activeExplosions = [];
+
     this.weaponRenderer.destroy();
     this.hud.destroy();
     this.shopModal.destroy();
