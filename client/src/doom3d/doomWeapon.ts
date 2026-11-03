@@ -12,14 +12,14 @@ export function create3DWeaponMesh(weaponId: WeaponType, weaponSkinId?: string, 
 
   const darkMetal = new THREE.MeshStandardMaterial({
     color: hasCustomWepSkin ? new THREE.Color(wepSkin.bodyHex) : 0x1e293b,
-    roughness: 0.18,
-    metalness: 0.92,
+    roughness: hasCustomWepSkin ? Math.max(0.22, wepSkin.roughness) : 0.28,
+    metalness: hasCustomWepSkin ? Math.min(0.52, wepSkin.metalness) : 0.45,
     envMapIntensity: 2.2
   });
   const gunMetal = new THREE.MeshStandardMaterial({
     color: hasCustomWepSkin ? new THREE.Color(wepSkin.barrelHex) : 0x334155,
-    roughness: 0.14,
-    metalness: 0.95,
+    roughness: hasCustomWepSkin ? Math.max(0.2, wepSkin.roughness) : 0.25,
+    metalness: hasCustomWepSkin ? Math.min(0.55, wepSkin.metalness) : 0.5,
     envMapIntensity: 2.5
   });
   const gripMat = new THREE.MeshStandardMaterial({

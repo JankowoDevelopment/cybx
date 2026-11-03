@@ -285,19 +285,26 @@ export class DoomLobby {
     this.renderer.toneMappingExposure = 1.15;
     this.stageCanvasContainer.appendChild(this.renderer.domElement);
 
+    // Create Cyber PMREM Reflection Environment (enables metallic armor & weapon skin reflections!)
+    this.createCyberReflectionEnv();
+
     // Stage Lighting
-    const hemi = new THREE.HemisphereLight(0x38bdf8, 0x090d16, 1.35);
+    const hemi = new THREE.HemisphereLight(0x38bdf8, 0x090d16, 1.4);
     this.scene.add(hemi);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 2.1);
+    const frontLight = new THREE.DirectionalLight(0xe0f2fe, 1.9);
+    frontLight.position.set(0, 55, 120);
+    this.scene.add(frontLight);
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
     keyLight.position.set(60, 140, 110);
     this.scene.add(keyLight);
 
-    const rimLightL = new THREE.PointLight(0x38bdf8, 4.0, 280);
+    const rimLightL = new THREE.PointLight(0x38bdf8, 4.2, 300);
     rimLightL.position.set(-90, 60, -40);
     this.scene.add(rimLightL);
 
-    const rimLightR = new THREE.PointLight(0xec4899, 4.0, 280);
+    const rimLightR = new THREE.PointLight(0xec4899, 4.2, 300);
     rimLightR.position.set(90, 60, -40);
     this.scene.add(rimLightR);
 
@@ -334,15 +341,51 @@ export class DoomLobby {
       // Gentle idle animation & subtle heroic turntable sway on 3D characters
       for (let i = 0; i < this.stageSlots.length; i++) {
         const slot = this.stageSlots[i];
-        const idleY = Math.sin(t * 0.002 + i) * 0.055;
-        slot.charModel.group.rotation.y = -0.36 + idleY;
-        slot.charModel.armR.position.y = 28 + Math.sin(t * 0.0035 + i) * 0.35;
+        const idleY = Math.sin(t * 0.002 + i) * 0.05;
+        slot.charModel.group.rotation.y = -0.32 + idleY;
+        slot.charModel.group.position.y = 4 + Math.sin(t * 0.003 + i) * 0.25;
       }
 
       this.renderer.render(this.scene, this.camera);
       this.update2DLabelsPositions();
     };
     this.animFrameId = requestAnimationFrame(animate);
+  }
+
+  private createCyberReflectionEnv(): void {
+    const c = document.createElement('canvas');
+    c.width = 512;
+    c.height = 256;
+    const ctx = c.getContext('2d')!;
+
+    const bg = ctx.createLinearGradient(0, 0, 0, 256);
+    bg.addColorStop(0, '#0f172a');
+    bg.addColorStop(0.45, '#1e293b');
+    bg.addColorStop(0.5, '#38bdf8');
+    bg.addColorStop(0.55, '#0f172a');
+    bg.addColorStop(1, '#020617');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, 512, 256);
+
+    const neonColors = ['#38bdf8', '#ec4899', '#f59e0b', '#a855f7', '#22c55e', '#ef4444'];
+    for (let i = 0; i < 16; i++) {
+      const x = (i / 16) * 512;
+      ctx.fillStyle = neonColors[i % neonColors.length];
+      ctx.fillRect(x, 70, 18, 110);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(x + 5, 86, 8, 78);
+    }
+
+    const eqTex = new THREE.CanvasTexture(c);
+    eqTex.mapping = THREE.EquirectangularReflectionMapping;
+    eqTex.colorSpace = THREE.SRGBColorSpace;
+
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    pmrem.compileEquirectangularShader();
+    this.scene.environment = pmrem.fromEquirectangular(eqTex).texture;
+
+    eqTex.dispose();
+    pmrem.dispose();
   }
 
   private rebuild3DStageCharacters(): void {
@@ -418,10 +461,8 @@ export class DoomLobby {
         false
       );
       charModel.group.position.y = 4;
-      // Rotate character mostly towards screen (-20 deg angle) so both front armor and held weapon are clearly visible
-      charModel.group.rotation.y = -0.36;
-      charModel.armR.rotation.y = -0.16;
-      charModel.armR.rotation.x = -0.08;
+      // Rotate character mostly towards screen (-18 deg angle) so both front armor, addons, and held weapon are clearly visible
+      charModel.group.rotation.y = -0.32;
       charModel.group.userData = { playerId: p.id, isLocal };
       charModel.group.traverse((child) => {
         child.userData = { playerId: p.id, isLocal };

@@ -1506,12 +1506,12 @@ export class Doom3DRenderer {
 
       // Update opponent's 3D held weapon if they unlocked a new weapon card!
       if (model.weaponId !== p.weaponId) {
-        model.armR.remove(model.gunMesh);
+        (model.gunMesh.parent || model.armR).remove(model.gunMesh);
         const newGun = create3DWeaponMesh(p.weaponId, p.cosmetics?.weaponSkinId, p.cosmetics?.neonSkinId);
-        newGun.scale.set(1.1, 1.1, 1.1);
+        newGun.scale.set(1.65, 1.65, 1.65);
         newGun.rotation.y = Math.PI;
         newGun.position.set(0, 1, 12);
-        model.armR.add(newGun);
+        (model.gunMesh.parent || model.armR).add(newGun);
         model.gunMesh = newGun;
         model.weaponId = p.weaponId;
       }

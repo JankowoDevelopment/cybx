@@ -10,11 +10,29 @@ export interface PlayerProfile {
 }
 
 const PROFILE_COOKIE_KEY = 'cyber_arena_profile_v1';
+const COOKIE_SALT = 'CYBER_SECURE_SALT_99a8b_v2';
+
+function computeCookieHash(dataStr: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c64e6d;
+  const combined = COOKIE_SALT + dataStr + COOKIE_SALT;
+  for (let i = 0; i < combined.length; i++) {
+    const ch = combined.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
 
 export function setCookieJson(name: string, value: unknown): void {
   try {
-    const encoded = encodeURIComponent(JSON.stringify(value));
-    document.cookie = `${name}=${encoded}; max-age=31536000; path=/; SameSite=Lax`;
+    const jsonStr = JSON.stringify(value);
+    const b64 = btoa(encodeURIComponent(jsonStr));
+    const sig = computeCookieHash(jsonStr);
+    const packaged = `${sig}.${b64}`;
+    document.cookie = `${name}=${encodeURIComponent(packaged)}; max-age=31536000; path=/; SameSite=Lax`;
   } catch (_e) {
     // Ignore cookie errors
   }
@@ -27,7 +45,17 @@ export function getCookieJson<T>(name: string): T | null {
       .find((row) => row.startsWith(`${name}=`));
     if (match) {
       const raw = decodeURIComponent(match.substring(name.length + 1));
-      return JSON.parse(raw) as T;
+      if (raw.includes('.')) {
+        const [sig, b64] = raw.split('.', 2);
+        const jsonStr = decodeURIComponent(atob(b64));
+        const expectedSig = computeCookieHash(jsonStr);
+        if (sig === expectedSig) {
+          return JSON.parse(jsonStr) as T;
+        }
+      } else {
+        // Fallback for legacy unhashed cookies
+        return JSON.parse(raw) as T;
+      }
     }
   } catch (_e) {
     // Ignore cookie parse errors
@@ -161,3 +189,20 @@ class ProfileManager {
 }
 
 export const profileManager = new ProfileManager();
+
+// Developer Console Command: give_gems(amount)
+if (typeof window !== 'undefined') {
+  const giveGemsFn = (amount: number = 10000) => {
+    const val = typeof amount === 'number' && !isNaN(amount) ? amount : 10000;
+    const { oldPoints, newPoints } = profileManager.addPoints(val);
+    console.log(
+      `%c[CYBER ARENA] 💎 Dodano +${val} PKT! (%c${oldPoints} ➔ ${newPoints} PKT%c)`,
+      'color: #38bdf8; font-weight: bold; font-size: 13px;',
+      'color: #fbbf24; font-weight: 900;',
+      'color: #38bdf8;'
+    );
+    return `Aktualny stan konta: ${newPoints} PKT`;
+  };
+  (window as any).give_gems = giveGemsFn;
+  (window as any).givegems = giveGemsFn;
+}
