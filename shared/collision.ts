@@ -16,21 +16,43 @@ export function circleOverlapsRect(
   return dx * dx + dy * dy < radius * radius;
 }
 
-// Axis-separated movement resolution (enables smooth sliding along walls & full W+A diagonal movement)
+/**
+ * Returns the highest walkable floor height directly below or intersecting the player's circle.
+ */
+export function getFloorHeightAt(x: number, y: number, radius: number, walls: WallRect[]): number {
+  let highest = 0;
+  for (let i = 0; i < walls.length; i++) {
+    const w = walls[i];
+    if (w.isWalkableTop && w.maxZ !== undefined) {
+      if (circleOverlapsRect(x, y, radius, w.x, w.y, w.w, w.h)) {
+        if (w.maxZ > highest) highest = w.maxZ;
+      }
+    }
+  }
+  return highest;
+}
+
+// Axis-separated movement resolution (enables smooth sliding along walls & full W+A diagonal movement, stepping onto platforms)
 export function resolveMovement(
   currentX: number,
   currentY: number,
   deltaX: number,
   deltaY: number,
   radius: number,
-  walls: WallRect[]
+  walls: WallRect[],
+  currentZ: number = 0
 ): { x: number; y: number } {
   let posX = currentX + deltaX;
   let posY = currentY;
 
   // Resolve X axis
   if (deltaX !== 0) {
-    for (const wall of walls) {
+    for (let i = 0; i < walls.length; i++) {
+      const wall = walls[i];
+      const wallMaxZ = wall.maxZ !== undefined ? wall.maxZ : 140;
+      // If player is on or above the top surface of this block, horizontal collision is ignored
+      if (currentZ >= wallMaxZ - 2) continue;
+
       if (circleOverlapsRect(posX, posY, radius, wall.x, wall.y, wall.w, wall.h)) {
         if (deltaX > 0) {
           posX = wall.x - radius;
@@ -44,7 +66,11 @@ export function resolveMovement(
   // Now resolve Y axis with the updated posX
   posY = currentY + deltaY;
   if (deltaY !== 0) {
-    for (const wall of walls) {
+    for (let i = 0; i < walls.length; i++) {
+      const wall = walls[i];
+      const wallMaxZ = wall.maxZ !== undefined ? wall.maxZ : 140;
+      if (currentZ >= wallMaxZ - 2) continue;
+
       if (circleOverlapsRect(posX, posY, radius, wall.x, wall.y, wall.w, wall.h)) {
         if (deltaY > 0) {
           posY = wall.y - radius;
@@ -86,7 +112,6 @@ export function lineRectIntersection(
   rw: number,
   rh: number
 ): boolean {
-  // Fast AABB rejection before line-segment math
   const minX = x1 < x2 ? x1 : x2;
   const maxX = x1 > x2 ? x1 : x2;
   if (maxX < rx || minX > rx + rw) return false;
@@ -107,9 +132,42 @@ export function lineRectIntersection(
 }
 
 /**
- * Fast 2D Line-of-Sight check against interior walls (skips outer perimeter walls).
- * Returns true if there is a clear line of sight between (x1, y1) and (x2, y2).
+ * 3D Line segment vs Vertical Cylinder intersection.
+ * Returns true if the 3D ray segment hits the player's cylinder and determines headshot accuracy!
  */
+export function lineSegmentCylinderIntersection(
+  x1: number, y1: number, z1: number,
+  x2: number, y2: number, z2: number,
+  cx: number, cy: number, baseZ: number,
+  radius: number, height: number
+): { hit: boolean; hitX: number; hitY: number; hitZ: number; isHeadshot: boolean } {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const dz = z2 - z1;
+  const lenSq = dx * dx + dy * dy;
+
+  let t = 0;
+  if (lenSq > 0.0001) {
+    t = Math.max(0, Math.min(1, ((cx - x1) * dx + (cy - y1) * dy) / lenSq));
+  }
+
+  const closestX = x1 + t * dx;
+  const closestY = y1 + t * dy;
+  const distSq = (closestX - cx) ** 2 + (closestY - cy) ** 2;
+
+  if (distSq > radius * radius) {
+    return { hit: false, hitX: 0, hitY: 0, hitZ: 0, isHeadshot: false };
+  }
+
+  const bulletZ = z1 + t * dz;
+  if (bulletZ < baseZ - 4 || bulletZ > baseZ + height + 4) {
+    return { hit: false, hitX: 0, hitY: 0, hitZ: 0, isHeadshot: false };
+  }
+
+  const isHeadshot = bulletZ >= baseZ + height * 0.72;
+  return { hit: true, hitX: closestX, hitY: closestY, hitZ: bulletZ, isHeadshot };
+}
+
 export function hasLineOfSight(
   x1: number,
   y1: number,
@@ -126,4 +184,3 @@ export function hasLineOfSight(
   }
   return true;
 }
-

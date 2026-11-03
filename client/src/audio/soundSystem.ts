@@ -234,6 +234,15 @@ class SoundSystem {
         case 'dash':
           this.playDash(ctx, dest);
           break;
+        case 'jump':
+          this.playJump(ctx, dest);
+          break;
+        case 'bhop':
+          this.playBhop(ctx, dest);
+          break;
+        case 'impact_slam':
+          this.playImpactSlam(ctx, dest);
+          break;
         case 'downed':
           this.playDowned(ctx, dest);
           break;
@@ -518,6 +527,57 @@ class SoundSystem {
     gain.connect(dest);
     osc.start(t);
     osc.stop(t + 0.65);
+  }
+
+  private playJump(ctx: AudioContext, dest: AudioNode): void {
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(160, t);
+    osc.frequency.exponentialRampToValueAtTime(320, t + 0.12);
+
+    gain.gain.setValueAtTime(0.18, t);
+    gain.gain.exponentialRampToValueAtTime(0.005, t + 0.12);
+
+    osc.connect(gain);
+    gain.connect(dest);
+    osc.start(t);
+    osc.stop(t + 0.12);
+  }
+
+  private playBhop(ctx: AudioContext, dest: AudioNode): void {
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(280, t);
+    osc.frequency.exponentialRampToValueAtTime(540, t + 0.09);
+
+    gain.gain.setValueAtTime(0.22, t);
+    gain.gain.exponentialRampToValueAtTime(0.005, t + 0.09);
+
+    osc.connect(gain);
+    gain.connect(dest);
+    osc.start(t);
+    osc.stop(t + 0.09);
+  }
+
+  private playImpactSlam(ctx: AudioContext, dest: AudioNode): void {
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(140, t);
+    osc.frequency.exponentialRampToValueAtTime(28, t + 0.42);
+
+    gain.gain.setValueAtTime(0.48, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
+
+    osc.connect(gain);
+    gain.connect(dest);
+    osc.start(t);
+    osc.stop(t + 0.42);
   }
 
   private playDash(ctx: AudioContext, dest: AudioNode): void {

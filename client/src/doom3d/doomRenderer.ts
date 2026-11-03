@@ -8,7 +8,7 @@ import { GameSnapshot, PlayerState, WeaponType, ZombieState } from '@shared/type
 import { SERVER_CONFIG } from '@shared/constants.js';
 import { DEADLOCK_ITEMS } from '@shared/items.js';
 import { ROUNDS_CARDS } from '@shared/cards.js';
-import { resolveMovement, hasLineOfSight } from '@shared/collision.js';
+import { resolveMovement, hasLineOfSight, getFloorHeightAt } from '@shared/collision.js';
 import { WEAPONS } from '@shared/weapons.js';
 import { createDefaultMap, MapData, WallRect } from '@shared/map.js';
 import { createDoomTextures, DoomTextureSet } from './doomTextures.js';
@@ -569,9 +569,17 @@ export class Doom3DRenderer {
     });
 
     for (const wall of this.mapData.walls) {
-      const h = wall.isPerimeter ? wallHeight * 1.4 : wallHeight;
+      const h = wall.maxZ || (wall.isPerimeter ? wallHeight * 1.4 : wallHeight);
       const wallGeo = new THREE.BoxGeometry(wall.w, h, wall.h);
-      const mat = wall.isPerimeter ? perimeterMat : brickMat;
+      let mat = wall.isPerimeter ? perimeterMat : brickMat;
+      let topStripMat = wall.isPerimeter ? redNeonMat : cyanNeonMat;
+
+      if (wall.wallType === 'crate') {
+        topStripMat = goldNeonMat;
+      } else if (wall.wallType === 'catwalk') {
+        topStripMat = cyanNeonMat;
+      }
+
       const cx = wall.x + wall.w / 2;
       const cz = wall.y + wall.h / 2;
 
@@ -584,20 +592,60 @@ export class Doom3DRenderer {
 
       // Top HDR Glowing Neon Strip
       const trimGeo = new THREE.BoxGeometry(wall.w + 2.5, 4.5, wall.h + 2.5);
-      const topTrim = new THREE.Mesh(trimGeo, wall.isPerimeter ? redNeonMat : cyanNeonMat);
+      const topTrim = new THREE.Mesh(trimGeo, topStripMat);
       topTrim.position.set(cx, h + 1, cz);
       this.scene.add(topTrim);
       this.wallMeshes.push(topTrim);
 
       // Mid-height Cyber Accent Line on interior walls & pillars
-      if (!wall.isPerimeter) {
+      if (!wall.isPerimeter && h >= 70) {
         const midTrimGeo = new THREE.BoxGeometry(wall.w + 1.6, 2.2, wall.h + 1.6);
         const midTrim = new THREE.Mesh(midTrimGeo, purpleNeonMat);
         midTrim.position.set(cx, h * 0.52, cz);
         this.scene.add(midTrim);
       }
+    }
 
+    // 4.5 3D Neon Jump-Pads
+    for (const pad of this.mapData.jumpPads || []) {
+      const padGroup = new THREE.Group();
+      padGroup.position.set(pad.x, 0, pad.y);
 
+      const padCol = new THREE.Color(pad.colorHex || '#38bdf8');
+      const baseGeo = new THREE.CylinderGeometry(pad.radius, pad.radius + 5, 4, 24);
+      const baseMat = new THREE.MeshStandardMaterial({
+        color: 0x050a16,
+        roughness: 0.25,
+        metalness: 0.85
+      });
+      const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+      baseMesh.position.y = 2;
+      padGroup.add(baseMesh);
+
+      // Emissive Neon Launch Ring
+      const ringGeo = new THREE.RingGeometry(pad.radius * 0.45, pad.radius * 0.92, 24);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: padCol.clone().multiplyScalar(2.8),
+        side: THREE.DoubleSide
+      });
+      const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+      ringMesh.rotation.x = -Math.PI / 2;
+      ringMesh.position.y = 4.2;
+      padGroup.add(ringMesh);
+
+      // Upward Neon Energy Beacon
+      const beamGeo = new THREE.CylinderGeometry(pad.radius * 0.65, pad.radius * 0.8, 80, 16, 1, true);
+      const beamMat = new THREE.MeshBasicMaterial({
+        color: padCol.clone().multiplyScalar(1.5),
+        transparent: true,
+        opacity: 0.3,
+        side: THREE.DoubleSide
+      });
+      const beamMesh = new THREE.Mesh(beamGeo, beamMat);
+      beamMesh.position.y = 40;
+      padGroup.add(beamMesh);
+
+      this.scene.add(padGroup);
     }
 
     // 5. 3D Doors
@@ -810,6 +858,8 @@ export class Doom3DRenderer {
       moveX,
       moveY,
       yaw: serverYaw,
+      pitch: this.pitch,
+      jump: this.pressedKeys.has('Space'),
       mouseX: this.predictedX + Math.cos(serverYaw) * 100,
       mouseY: this.predictedZ + Math.sin(serverYaw) * 100,
       shoot:
@@ -908,7 +958,7 @@ export class Doom3DRenderer {
       if (this.cardDraftModal.isOpen || this.settingsModal.isOpen) return;
       this.pressedKeys.add(e.code);
 
-      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
         this.sendImmediateMovementInput();
       }
 
@@ -917,7 +967,7 @@ export class Doom3DRenderer {
           networkManager.send({ type: 'reload' });
         } else if (e.code === 'KeyE') {
           networkManager.send({ type: 'interact' });
-        } else if (e.code === 'Space') {
+        } else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
           networkManager.send({ type: 'dash' });
         }
       }
@@ -925,7 +975,7 @@ export class Doom3DRenderer {
 
     window.addEventListener('keyup', (e) => {
       this.pressedKeys.delete(e.code);
-      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
         this.sendImmediateMovementInput();
       }
     });
@@ -1368,9 +1418,37 @@ export class Doom3DRenderer {
           this.headBobTimer = 0;
         }
 
+        const serverZ = localPlayer.z || 0;
+        const dZ = serverZ - this.predictedY;
+        if (Math.abs(dZ) > 30) {
+          this.predictedY = serverZ;
+          this.predictedVz = localPlayer.vz || 0;
+          this.isClientGrounded = Boolean(localPlayer.isGrounded);
+        } else {
+          const walls = this.getEffectiveWalls();
+          const floorZ = getFloorHeightAt(this.predictedX, this.predictedZ, SERVER_CONFIG.PLAYER_RADIUS, walls);
+
+          if (this.pressedKeys.has('Space') && this.isClientGrounded && snapshot?.roundState === 'active') {
+            this.predictedVz = SERVER_CONFIG.JUMP_IMPULSE;
+            this.isClientGrounded = false;
+          }
+
+          if (!this.isClientGrounded) {
+            this.predictedVz -= SERVER_CONFIG.GRAVITY * dtSec;
+            this.predictedY += this.predictedVz * dtSec;
+            if (this.predictedY <= floorZ) {
+              this.predictedY = floorZ;
+              this.predictedVz = 0;
+              this.isClientGrounded = true;
+            }
+          } else {
+            this.predictedY += (floorZ - this.predictedY) * Math.min(1, dtSec * 25);
+          }
+        }
+
         this.camera.position.x = this.predictedX;
         this.camera.position.z = this.predictedZ;
-        this.camera.position.y = eyeHeight + bobY;
+        this.camera.position.y = eyeHeight + this.predictedY + bobY;
       }
 
       const serverYaw = Math.atan2(forwardDir.z, forwardDir.x);
@@ -1387,6 +1465,8 @@ export class Doom3DRenderer {
           moveX,
           moveY,
           yaw: serverYaw,
+          pitch: this.pitch,
+          jump: this.pressedKeys.has('Space'),
           mouseX: this.predictedX + Math.cos(serverYaw) * 100,
           mouseY: this.predictedZ + Math.sin(serverYaw) * 100,
           shoot:
@@ -1609,11 +1689,18 @@ export class Doom3DRenderer {
 
         model.group.rotation.y = -p.angle + Math.PI / 2;
 
+        const targetY = p.z || 0;
+        const dy = targetY - model.group.position.y;
+        model.group.position.y += dy * Math.min(1, dtSec * 35);
+
         const moveDist = Math.hypot(model.group.position.x - model.lastX, model.group.position.z - model.lastZ);
         model.lastX = model.group.position.x;
         model.lastZ = model.group.position.z;
 
-        if (moveDist > 0.15) {
+        if (targetY > 6) {
+          model.legL.rotation.x = 0.4;
+          model.legR.rotation.x = -0.4;
+        } else if (moveDist > 0.15) {
           model.walkPhase += dtSec * 14;
           model.legL.rotation.x = Math.sin(model.walkPhase) * 0.65;
           model.legR.rotation.x = -Math.sin(model.walkPhase) * 0.65;
@@ -1631,7 +1718,7 @@ export class Doom3DRenderer {
         );
         const distScale = Math.max(1, Math.min(5.5, distToCam / 520));
         hpBar.sprite.scale.set(38 * distScale, 9.5 * distScale, 1);
-        hpBar.sprite.position.set(model.group.position.x, 58 + (distScale - 1) * 7, model.group.position.z);
+        hpBar.sprite.position.set(model.group.position.x, model.group.position.y + 58 + (distScale - 1) * 7, model.group.position.z);
 
         // Dirty-check HP Bar state so we ONLY redraw the 2D Canvas & upload texture when values change!
         const nextKey = `${p.isDead ? 1 : 0}|${Math.ceil(p.hp)}|${p.maxHp}|${p.roundWins || 0}|${p.killedBy || ''}`;
@@ -1775,21 +1862,24 @@ export class Doom3DRenderer {
       const spriteSize = Math.min(82, Math.max(10, radius * 3.2));
 
       // Boost bullet & tracer HDR color so UnrealBloomPass makes projectiles glow intensely!
+      const by = (b.z !== undefined ? b.z : 24) + (b.vz || 0) * interpSec;
+
       entry.spriteMat.color.setHex(col).multiplyScalar(2.4);
       entry.sprite.scale.set(spriteSize, spriteSize, 1);
-      entry.sprite.position.set(bx, 24, bz);
+      entry.sprite.position.set(bx, Math.max(2, by), bz);
       entry.sprite.visible = true;
 
       const speed = Math.hypot(b.vx, b.vy);
       const tracerLen = Math.min(48, Math.max(12, speed * 0.028));
       const yawAngle = Math.atan2(b.vx, b.vy);
+      const pitchAngle = -Math.atan2(b.vz || 0, speed || 1);
 
       entry.tracerMat.color.setHex(col).multiplyScalar(2.4);
       entry.tracer.scale.set(Math.max(1, radius * 0.25), Math.max(1, radius * 0.25), tracerLen);
-      entry.tracer.rotation.set(0, yawAngle, 0);
+      entry.tracer.rotation.set(pitchAngle, yawAngle, 0);
       entry.tracer.position.set(
         bx - (b.vx / (speed || 1)) * (tracerLen * 0.5),
-        24,
+        Math.max(2, by),
         bz - (b.vy / (speed || 1)) * (tracerLen * 0.5)
       );
       entry.tracer.visible = true;

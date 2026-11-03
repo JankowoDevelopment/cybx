@@ -18,7 +18,7 @@ import { DEADLOCK_ITEMS } from '../../shared/items.js';
 import { ROUNDS_CARDS, RoundsCardDef, drawWeightedRandomCards } from '../../shared/cards.js';
 import { PlayerCosmetics, DEFAULT_COSMETICS, getNeonSkin } from '../../shared/skins.js';
 import { SERVER_CONFIG } from '../../shared/constants.js';
-import { resolveWallCollisions, resolveMovement, circleOverlapsRect, lineRectIntersection, lineSegmentCircleIntersection } from './Collision.js';
+import { resolveWallCollisions, resolveMovement, circleOverlapsRect, lineRectIntersection, lineSegmentCircleIntersection, getFloorHeightAt, lineSegmentCylinderIntersection } from './Collision.js';
 import { updateZombie } from './ZombieAI.js';
 
 export interface PlayerInput {
@@ -30,8 +30,10 @@ export interface PlayerInput {
   mouseY: number;
   shoot: boolean;
   yaw?: number;
+  pitch?: number;
   moveX?: number;
   moveY?: number;
+  jump?: boolean;
 }
 
 export class GameSimulation {
@@ -66,6 +68,8 @@ export class GameSimulation {
     doublePoints: 0
   };
 
+  private playerPitch: Map<string, number> = new Map();
+  private playerLastGrounded: Map<string, number> = new Map();
   private playerLastShot: Map<string, number> = new Map();
   private pendingBursts: { playerId: string; shotsLeft: number; nextShotTime: number; intervalMs: number }[] = [];
   private zombieLastAttack: Map<string, number> = new Map();
@@ -113,6 +117,10 @@ export class GameSimulation {
       isDashing: false,
       dashCooldownRemaining: 0,
       grenadesRemaining: 0, // Disabled as requested
+      z: 0,
+      vz: 0,
+      isGrounded: true,
+      bhopStreak: 0,
       kills: 0,
       deaths: 0,
       roundWins: 0,
@@ -729,6 +737,95 @@ export class GameSimulation {
       }
 
       if (input && this.roundState === 'active') {
+        if (input.pitch !== undefined) {
+          this.playerPitch.set(player.id, input.pitch);
+        }
+
+        const floorZ = getFloorHeightAt(player.x, player.y, SERVER_CONFIG.PLAYER_RADIUS, walls);
+
+        // Jump pad boost check
+        for (const pad of this.map.jumpPads || []) {
+          const pdx = player.x - pad.x;
+          const pdy = player.y - pad.y;
+          if (pdx * pdx + pdy * pdy < pad.radius * pad.radius) {
+            if ((player.z || 0) <= floorZ + 16 && (player.vz || 0) <= 60) {
+              player.vz = pad.boostZ;
+              player.isGrounded = false;
+              this.onSoundEvent?.('jump', undefined, player.id, player.x, player.y);
+            }
+          }
+        }
+
+        // Jump Card modifiers
+        let jumpImpulse = SERVER_CONFIG.JUMP_IMPULSE;
+        let effGravity = SERVER_CONFIG.GRAVITY;
+        let maxBhopBonus = SERVER_CONFIG.BHOP_MAX_SPEED_BONUS_PCT;
+        let stepBhopBonus = SERVER_CONFIG.BHOP_SPEED_BONUS_PCT;
+        let hasImpactSlam = false;
+
+        for (const cardId of (player.cards || [])) {
+          const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+          if (card?.stats.jumpForcePct) jumpImpulse *= 1 + card.stats.jumpForcePct / 100;
+          if (card?.stats.gravityPct) effGravity *= Math.max(0.25, 1 + card.stats.gravityPct / 100);
+          if (card?.stats.bhopMultiplierPct) {
+            maxBhopBonus += 50;
+            stepBhopBonus += 10;
+          }
+          if (card?.stats.hasImpactSlam) hasImpactSlam = true;
+        }
+
+        // Process jump key press
+        if (input.jump && player.isGrounded) {
+          const lastLanded = this.playerLastGrounded.get(player.id) || 0;
+          const landedAgo = now - lastLanded;
+          if (landedAgo <= SERVER_CONFIG.BHOP_WINDOW_MS && (player.bhopStreak || 0) > 0) {
+            const maxStreak = Math.floor(maxBhopBonus / stepBhopBonus);
+            player.bhopStreak = Math.min(maxStreak, (player.bhopStreak || 0) + 1);
+            this.onSoundEvent?.('bhop', undefined, player.id, player.x, player.y);
+          } else {
+            player.bhopStreak = 1;
+            this.onSoundEvent?.('jump', undefined, player.id, player.x, player.y);
+          }
+          player.vz = jumpImpulse;
+          player.isGrounded = false;
+        }
+
+        // Reset bhop streak if walking on ground for too long
+        if (player.isGrounded) {
+          const lastLanded = this.playerLastGrounded.get(player.id) || 0;
+          if (now - lastLanded > 160) {
+            player.bhopStreak = 0;
+          }
+        }
+
+        // Apply bunnyhop speed bonus
+        if ((player.bhopStreak || 0) > 0) {
+          const bhopBoost = 1 + ((player.bhopStreak || 0) * stepBhopBonus) / 100;
+          speed *= bhopBoost;
+        }
+
+        // Vertical movement integration
+        if (!player.isGrounded) {
+          player.vz = (player.vz || 0) - effGravity * dtSec;
+          let nextZ = (player.z || 0) + (player.vz || 0) * dtSec;
+          if (nextZ <= floorZ) {
+            if (hasImpactSlam && (player.vz || 0) < -340 && (player.z || 0) > floorZ + 18) {
+              this.triggerExplosion(player.x, player.y, 180, 60, player.id);
+              this.onSoundEvent?.('impact_slam', undefined, player.id, player.x, player.y);
+              this.onGameEvent?.('slam', player.name + ' IMPACT SLAM!', '#f59e0b');
+            }
+            nextZ = floorZ;
+            player.vz = 0;
+            player.isGrounded = true;
+            this.playerLastGrounded.set(player.id, now);
+          } else {
+            player.isGrounded = false;
+          }
+          player.z = nextZ;
+        } else {
+          player.z = floorZ;
+        }
+
         let moveX = 0;
         let moveY = 0;
 
@@ -757,7 +854,8 @@ export class GameSimulation {
           deltaX,
           deltaY,
           SERVER_CONFIG.PLAYER_RADIUS,
-          walls
+          walls,
+          player.z || 0
         );
         player.x = resolved.x;
         player.y = resolved.y;
@@ -804,17 +902,34 @@ export class GameSimulation {
       }
     }
 
-    // 4. Update Bullets with Continuous Collision Detection, Wall Ricochet (Bounce) & Player Hits
+    // 4. Update Bullets with Continuous 3D Ballistics, Gravity Arc, Wall Ricochet & Cylinder Player Hits
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const b = this.bullets[i];
       const prevX = b.x;
       const prevY = b.y;
+      const prevZ = b.z !== undefined ? b.z : 34;
+
+      if (!b.isZeroG) {
+        b.vz = (b.vz || 0) - SERVER_CONFIG.BULLET_GRAVITY * dtSec;
+      }
       const nextX = b.x + b.vx * dtSec;
       const nextY = b.y + b.vy * dtSec;
+      const nextZ = prevZ + (b.vz || 0) * dtSec;
 
-      // Check wall collisions along the path
+      // Ground impact check
+      if (nextZ <= 0) {
+        this.onHitEvent?.(nextX, nextY, 0, false, true, b.shooterId);
+        this.bullets.splice(i, 1);
+        continue;
+      }
+
+      // Check wall collisions along the path (taking vertical block height into account)
       let hitWall = false;
       for (const wall of walls) {
+        const wallMaxZ = wall.maxZ !== undefined ? wall.maxZ : 140;
+        // If bullet path is entirely above the wall/crate, it passes cleanly overhead
+        if (Math.min(prevZ, nextZ) > wallMaxZ) continue;
+
         if (lineRectIntersection(prevX, prevY, nextX, nextY, wall.x, wall.y, wall.w, wall.h)) {
           hitWall = true;
 
@@ -835,6 +950,7 @@ export class GameSimulation {
 
             b.x = prevX + b.vx * dtSec * 0.4;
             b.y = prevY + b.vy * dtSec * 0.4;
+            b.z = nextZ;
 
             this.onHitEvent?.(nextX, nextY, 0, false, true, b.shooterId);
             this.onSoundEvent?.('hit', b.weaponId, b.shooterId, nextX, nextY);
@@ -856,6 +972,7 @@ export class GameSimulation {
 
       b.x = nextX;
       b.y = nextY;
+      b.z = nextZ;
 
       // Check collision with explosive hazard barrels
       let hitBarrel = false;
@@ -881,25 +998,37 @@ export class GameSimulation {
         continue;
       }
 
-      // Continuous collision check against enemy players (1v1v1v1 PvP + Bullet Size)
+      // Continuous 3D Cylinder collision check against enemy players (accurate jumping hitboxes & headshots)
       for (const [targetId, target] of this.players) {
         if (targetId === b.shooterId) continue;
         if (target.isDead) continue;
 
         const effectiveRadius = SERVER_CONFIG.PLAYER_RADIUS + (b.bulletRadius || 5);
-        const hitResult = lineSegmentCircleIntersection(
+        const targetBaseZ = target.z || 0;
+        const hitResult = lineSegmentCylinderIntersection(
           prevX,
           prevY,
+          prevZ,
           nextX,
           nextY,
+          nextZ,
           target.x,
           target.y,
-          effectiveRadius
+          targetBaseZ,
+          effectiveRadius,
+          SERVER_CONFIG.PLAYER_HEIGHT
         );
 
         if (hitResult.hit) {
           const shooter = this.players.get(b.shooterId);
           let damage = b.damage;
+
+          // Accurate Headshot Bonus (+75% DMG) when hitting upper 28% of player cylinder
+          if (hitResult.isHeadshot) {
+            damage = Math.round(damage * 1.75);
+            if (shooter) shooter.headshots = (shooter.headshots || 0) + 1;
+            this.onGameEvent?.('headshot', '🎯 HEADSHOT! +75% DMG', '#ec4899');
+          }
 
           // Target damage reduction from defensive cards
           let reduction = 0;
@@ -1071,6 +1200,17 @@ export class GameSimulation {
     const effectiveSpread = pellets > 1 ? Math.max(spread, 0.08 + Math.min(0.24, pellets * 0.018)) : spread;
     const burstJitter = isBurstFollowUp ? (Math.random() - 0.5) * 0.025 : 0;
 
+    let hasZeroGAmmo = false;
+    for (const cardId of player.cards || []) {
+      const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+      if (card?.stats.zeroGravityAmmo) hasZeroGAmmo = true;
+    }
+
+    const pitch = this.playerPitch.get(player.id) || 0;
+    const cosPitch = Math.cos(pitch);
+    const sinPitch = Math.sin(pitch);
+    const startZ = (player.z || 0) + 34;
+
     for (let i = 0; i < pellets; i++) {
       let spreadAngle = (Math.random() - 0.5) * effectiveSpread + burstJitter;
       if (pellets > 2) {
@@ -1078,15 +1218,20 @@ export class GameSimulation {
         spreadAngle = fanFraction * effectiveSpread * 0.85 + (Math.random() - 0.5) * effectiveSpread * 0.25 + burstJitter;
       }
       const angle = player.angle + spreadAngle;
-      const vx = Math.cos(angle) * bulletSpeed;
-      const vy = Math.sin(angle) * bulletSpeed;
+      const vx = Math.cos(angle) * cosPitch * bulletSpeed;
+      const vy = Math.sin(angle) * cosPitch * bulletSpeed;
+      const vz = sinPitch * bulletSpeed;
 
       this.bullets.push({
         id: `bullet_${this.nextId++}`,
         x: player.x + Math.cos(player.angle) * 4,
         y: player.y + Math.sin(player.angle) * 4,
+        z: startZ,
         vx,
         vy,
+        vz,
+        pitch,
+        isZeroG: hasZeroGAmmo,
         shooterId: player.id,
         weaponId: player.weaponId,
         pierceLeft: pierce,
@@ -1212,6 +1357,7 @@ export class GameSimulation {
       grenades: this.grenades,
       powerUps: this.powerUps,
       doors: this.doors,
+      jumpPads: this.map.jumpPads,
       barrels: this.barrels,
       mysteryBox: this.mysteryBox,
       activePowerUps: this.activePowerUps

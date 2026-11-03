@@ -22,6 +22,12 @@ export interface CardStats {
   hasFreeze?: boolean;
   hasTesla?: boolean;
   grantWeapon?: WeaponType; // Nowa broń z karty ulepszeń
+  jumpForcePct?: number;
+  gravityPct?: number;
+  airControlPct?: number;
+  bhopMultiplierPct?: number;
+  zeroGravityAmmo?: boolean;
+  hasImpactSlam?: boolean;
 }
 
 export type CardRarity = 'common' | 'rare' | 'epic' | 'legendary';
@@ -583,5 +589,45 @@ export const ROUNDS_CARDS: RoundsCardDef[] = [
     category: 'special',
     description: 'LEGENDARNY: +110% Prędkości pocisków, +50% Obrażeń i +3 Odbicia od ścian',
     stats: { bulletSpeedPct: 110, bonusDamagePct: 50, bounceCount: 3 }
+  },
+  {
+    id: 'anti_grav_boots',
+    name: 'Anti-Grav Boots',
+    rarity: 'rare',
+    category: 'mobility',
+    description: '+45% Siły skoku i -35% Grawitacji (wyższe, płynniejsze loty i skoki na platformy)',
+    stats: { jumpForcePct: 45, gravityPct: -35 }
+  },
+  {
+    id: 'bhop_maestro',
+    name: 'Bhop Maestro',
+    rarity: 'epic',
+    category: 'mobility',
+    description: '+25% Prędkości za każdy perfekcyjny Bunnyhop (limit wzrasta do +130%) oraz +10% Szybkości biegu',
+    stats: { bhopMultiplierPct: 65, moveSpeedPct: 10 }
+  },
+  {
+    id: 'air_superiority',
+    name: 'Air Superiority',
+    rarity: 'epic',
+    category: 'mobility',
+    description: '+80% Kontroli i zwrotności w powietrzu (Air Strafe) oraz -50% Rozrzutu pocisków w locie',
+    stats: { airControlPct: 80, spreadModifierPct: -50 }
+  },
+  {
+    id: 'zero_g_ballistics',
+    name: 'Zero-G Ammo',
+    rarity: 'rare',
+    category: 'attack',
+    description: 'Pociski całkowicie ignorują grawitację (idealnie prosty tor lotu) oraz +30% Prędkości pocisku',
+    stats: { zeroGravityAmmo: true, bulletSpeedPct: 30 }
+  },
+  {
+    id: 'impact_slam',
+    name: 'Impact Slam',
+    rarity: 'legendary',
+    category: 'special',
+    description: 'Lądowanie z wyskoku generuje falę uderzeniową (Slam) zadającą 60 obrażeń w promieniu 180 jedn. +15% HP',
+    stats: { hasImpactSlam: true, maxHpPct: 15 }
   }
 ];

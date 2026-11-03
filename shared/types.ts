@@ -82,6 +82,10 @@ export interface PlayerState {
   isDashing: boolean;
   dashCooldownRemaining: number;
   grenadesRemaining: number;
+  z?: number;
+  vz?: number;
+  isGrounded?: boolean;
+  bhopStreak?: number;
   kills: number;
   deaths: number;
   roundWins: number;
@@ -111,6 +115,10 @@ export interface BulletState {
   y: number;
   vx: number;
   vy: number;
+  z?: number;
+  vz?: number;
+  pitch?: number;
+  isZeroG?: boolean;
   shooterId: string;
   weaponId: WeaponType;
   pierceLeft: number;
@@ -141,6 +149,15 @@ export interface PowerUpState {
   y: number;
   type: PowerUpType;
   durationTimer: number; // despawn timer
+}
+
+export interface JumpPad {
+  id: string;
+  x: number;
+  y: number;
+  radius: number;
+  boostZ: number;
+  colorHex?: string;
 }
 
 export interface DoorState {
@@ -197,6 +214,7 @@ export interface GameSnapshot {
   grenades: GrenadeState[];
   powerUps: PowerUpState[];
   doors: DoorState[];
+  jumpPads?: JumpPad[];
   barrels: BarrelState[];
   mysteryBox?: MysteryBoxState;
   activePowerUps: ActivePowerUps;
@@ -221,7 +239,7 @@ export type ClientPacket =
   | { type: 'update_profile'; playerName: string; cosmetics: PlayerCosmetics }
   | { type: 'kick_player'; targetPlayerId: string }
   | { type: 'start_game' }
-  | { type: 'input'; up: boolean; down: boolean; left: boolean; right: boolean; mouseX: number; mouseY: number; shoot: boolean; yaw?: number; moveX?: number; moveY?: number }
+  | { type: 'input'; up: boolean; down: boolean; left: boolean; right: boolean; mouseX: number; mouseY: number; shoot: boolean; yaw?: number; pitch?: number; moveX?: number; moveY?: number; jump?: boolean }
   | { type: 'dash' }
   | { type: 'grenade'; targetX: number; targetY: number }
   | { type: 'reload' }
@@ -236,7 +254,7 @@ export type ServerPacket =
   | { type: 'kicked'; reason: string }
   | { type: 'game_init'; map: any; wallBuys: WallBuyState[]; doors: DoorState[]; mysteryBox?: MysteryBoxState }
   | { type: 'snapshot'; state: GameSnapshot }
-  | { type: 'sound_event'; sound: 'shoot' | 'reload' | 'zombie_groan' | 'zombie_death' | 'hit' | 'round_start' | 'round_end' | 'buy' | 'nuke' | 'mystery_box' | 'downed' | 'revived' | 'dash' | 'explosion'; weapon?: WeaponType; shooterId?: string; x?: number; y?: number }
+  | { type: 'sound_event'; sound: 'shoot' | 'reload' | 'zombie_groan' | 'zombie_death' | 'hit' | 'round_start' | 'round_end' | 'buy' | 'nuke' | 'mystery_box' | 'downed' | 'revived' | 'dash' | 'explosion' | 'jump' | 'bhop' | 'impact_slam'; weapon?: WeaponType; shooterId?: string; x?: number; y?: number }
   | { type: 'explosion_event'; x: number; y: number; radius: number }
   | { type: 'game_event'; event: string; text?: string; color?: string }
   | { type: 'hit_event'; x: number; y: number; damage: number; isKill: boolean; isWall: boolean; shooterId: string }

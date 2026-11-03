@@ -147,6 +147,7 @@ export class DoomLobby {
           <h1 style="font-family: 'Orbitron', sans-serif; font-size: 34px; font-weight: 900; letter-spacing: 3px; margin: 0; line-height: 1;">
             <span style="color: #38bdf8; text-shadow: 0 0 25px rgba(56,189,248,0.9);">CYBX</span>
             <span style="color: #ef4444; text-shadow: 0 0 30px rgba(239,68,68,0.95);">// FREE FOR ALL</span>
+            <span style="font-size: 12px; color: #64748b; font-weight: 800; letter-spacing: 1.5px; margin-left: 8px;">v1.4.0</span>
           </h1>
         </div>
         <div style="font-family: 'Orbitron', sans-serif; font-size: 11px; color: #38bdf8; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; display: flex; align-items: center; gap: 8px;">
@@ -221,6 +222,30 @@ export class DoomLobby {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+      <!-- BOTTOM LEFT: Movement Controls Hint -->
+      <div style="position: absolute; bottom: 18px; left: 26px; z-index: 15; font-family: 'Orbitron', sans-serif; font-size: 10px; color: #64748b; font-weight: 800; letter-spacing: 1px; display: flex; align-items: center; gap: 10px; pointer-events: none;">
+        <span>SPACJA: <strong style="color: #38bdf8;">SKOK / BHOP</strong></span>
+        <span>&bull;</span>
+        <span>L-SHIFT: <strong style="color: #ef4444;">DASH</strong></span>
+        <span>&bull;</span>
+        <span>R: <strong style="color: #fbbf24;">PRZEŁADUJ</strong></span>
+      </div>
+
+      <!-- BOTTOM RIGHT FOOTER: GitHub & Copyright Notice -->
+      <div style="position: absolute; bottom: 18px; right: 26px; z-index: 15; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; pointer-events: auto;">
+        <a href="https://github.com/PanGruszek/cybx" target="_blank" rel="noopener noreferrer"
+           style="display: inline-flex; align-items: center; gap: 7px; color: #94a3b8; text-decoration: none; font-family: 'Orbitron', sans-serif; font-size: 11px; font-weight: 800; letter-spacing: 1.2px; transition: color 0.2s; background: rgba(8, 12, 22, 0.7); border: 1px solid rgba(56, 189, 248, 0.25); padding: 5px 12px; border-radius: 6px;"
+           onmouseover="this.style.color='#38bdf8'; this.style.borderColor='#38bdf8';"
+           onmouseout="this.style.color='#94a3b8'; this.style.borderColor='rgba(56, 189, 248, 0.25)';">
+          <svg height="13" width="13" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+          </svg>
+          GITHUB
+        </a>
+        <div style="font-family: 'Rajdhani', sans-serif; font-size: 11px; color: #64748b; font-weight: 600; letter-spacing: 0.8px;">
+          &copy; 2026 CYBX // SOURCE-AVAILABLE // ALL RIGHTS RESERVED
         </div>
       </div>
     `;
