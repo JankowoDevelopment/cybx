@@ -3,7 +3,8 @@
 > **High-octane 3D Cyberpunk Free-For-All arena shooter running directly in your browser with WebGL (Three.js) & WebSockets.**  
 > Zero installation required. Instant acceleration, snappy arena physics, real-time multiplayer, and HDR bloom visuals.
 
-🎮 **Play Live:** [https://cybx.pl](https://cybx.pl)
+🎮 **Play Live:** [https://cybx.pl](https://cybx.pl)  
+🌐 **Mirror:** [https://deadlock-zombies-game.fly.dev](https://deadlock-zombies-game.fly.dev)
 
 ---
 
@@ -65,56 +66,22 @@ Featuring instant client-side predicted movement, snappy strafe acceleration, pr
 
 ---
 
-## 🛠️ Tech Stack
+## 🛠️ Built With
 
 - **Client:** TypeScript, Three.js, Vite, Web Audio API, HTML5 Canvas
 - **Server:** Node.js, TypeScript, WebSockets (`ws`), Express
-- **Deployment & Infra:** Docker, Fly.io, Custom Domain SSL (nazwa.pl + Let's Encrypt)
-- **CI/CD:** GitHub Actions (`.github/workflows/fly.yml`)
+- **Cloud Infrastructure:** Docker, Fly.io, Custom Domain SSL (nazwa.pl + Let's Encrypt)
 
 ---
 
-## 💻 Local Development
-
-### Prerequisites
-- Node.js 20+
-- npm
-
-### 1. Install Dependencies
-```bash
-npm install
-```
-
-### 2. Development Mode
-Run client and server concurrently with hot reload:
-```bash
-npm run dev
-```
-Open [http://localhost:5173](http://localhost:5173) in your browser.
-
-### 3. Production Build & Start
-```bash
-npm run build
-npm start
-```
-The game will be available at [http://localhost:8080](http://localhost:8080).
-
----
-
-## 🚢 Deployment
-
-The game is containerized with a lightweight multi-stage Alpine Docker image and deployed on [Fly.io](https://fly.io):
-
-```bash
-fly deploy --depot=false --ha=false
-```
-
-Automated deployments trigger on every push to `main` via GitHub Actions.
-
----
-
-## 📜 License
+## 📜 License & Intellectual Property
 
 **All Rights Reserved &copy; 2026 Mariusz Gruszka**
 
-This project is **Source-Available** for personal inspection, educational study, and reference. No redistribution, copying, commercial exploitation, or public re-hosting is permitted without explicit written permission from the author. See the [LICENSE](LICENSE) file for complete terms.
+This repository is **Source-Available** strictly for personal inspection, educational study, and reference. 
+
+- **No Redistribution:** Copying, mirroring, downloading for redistribution, or publishing derivatives is strictly prohibited.
+- **No Self-Hosting:** Running private or public instances, servers, or mirrors of the game or its backend is not permitted.
+- **No Commercial Use:** Any commercial exploitation of the code, assets, audio, or game design is strictly forbidden.
+
+For full terms and legal restrictions, see the [LICENSE](LICENSE) file.
