@@ -398,8 +398,9 @@ export class GameSimulation {
         this.onGameEvent?.('round_tie', `⚠️ REMIS W RUNDZIE ${this.round}!`, '#f59e0b');
       }
 
-      this.cardPickQueue = [...this.eliminatedOrder];
-      this.advanceCardPickQueue();
+      // Przejście w stan podsumowania rundy na 2.8 sekundy przed otwarciem draftu kart
+      this.roundState = 'round_over';
+      this.roundTimer = 2800;
     }
   }
 
@@ -689,6 +690,16 @@ export class GameSimulation {
         } else {
           this.advanceCardPickQueue();
         }
+      }
+      return;
+    }
+
+    // 0c. Chwila po zabiciu ostatniego przeciwnika przed wybieraniem kart (celebracja zwycięzcy)
+    if (this.roundState === 'round_over') {
+      this.roundTimer = Math.max(0, this.roundTimer - dtMs);
+      if (this.roundTimer <= 0) {
+        this.cardPickQueue = [...this.eliminatedOrder];
+        this.advanceCardPickQueue();
       }
       return;
     }

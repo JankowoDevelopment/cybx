@@ -111,26 +111,36 @@ class SoundSystem {
     const dy = spatial.sourceY - spatial.listenerY;
     const dist = Math.hypot(dx, dy);
 
-    // Very close sounds (e.g. own explosion right at feet): cap volume so it never deafens the player!
-    if (dist < 140) {
+    // Very close sounds: cap only loud explosions to protect ears
+    if (dist < 120 && sound === 'explosion') {
       const closeGain = ctx.createGain();
-      closeGain.gain.setValueAtTime(sound === 'explosion' ? 0.28 : 0.35, ctx.currentTime);
+      closeGain.gain.setValueAtTime(0.35, ctx.currentTime);
       closeGain.connect(baseDest);
       return closeGain;
     }
 
-    // Full 4800x4800 arena diagonal is ~6788 units — keep all map sounds clearly audible!
-    const maxHearDist = 7200;
+    // Realistic distance rolloff curve:
+    // Close (0 - 320): Full punch & volume (1.0)
+    // Mid (800): ~0.38
+    // Far (1600): ~0.14
+    // Very distant (2800): ~0.04
+    // Beyond 3500: inaudible / silent
+    const refDist = 320;
+    const maxHearDist = 3500;
     if (dist > maxHearDist) {
       return null;
     }
 
-    // Boosted, gentle distance attenuation curve so distant & mid-range enemies are clearly heard
-    const normDist = Math.min(1, dist / maxHearDist);
-    let distGainVal = Math.max(0.32, Math.pow(1 - normDist, 0.62)) * 1.45;
+    let distGainVal = 1.0;
+    if (dist > refDist) {
+      const excess = dist - refDist;
+      const inv = refDist / (refDist + excess * 1.5);
+      const fadeToZero = Math.max(0, 1 - (excess / (maxHearDist - refDist)));
+      distGainVal = inv * fadeToZero * 1.15;
+    }
+
     if (sound === 'explosion') {
-      // Keep explosions punchy at distance, but never ear-splitting up close
-      distGainVal = Math.min(0.62, Math.max(0.28, (1 - normDist * 0.65) * 0.65));
+      distGainVal = Math.min(0.65, distGainVal * 0.9);
     }
 
     // Strong Stereo Left/Right Panning (-1 left ear to +1 right ear)
@@ -143,31 +153,31 @@ class SoundSystem {
 
     const rawPan = nx * rightX + ny * rightZ;
     // Slight non-linear boost so even 25-degree angles pan noticeably to the left or right ear
-    const panValue = Math.max(-1, Math.min(1, Math.sign(rawPan) * Math.pow(Math.abs(rawPan), 0.78)));
+    const panValue = Math.max(-1, Math.min(1, Math.sign(rawPan) * Math.pow(Math.abs(rawPan), 0.75)));
     const forwardDot = nx * fwdX + ny * fwdZ; // < 0 means behind the player's head
 
     const distGainNode = ctx.createGain();
     let tailNode: AudioNode = distGainNode;
 
-    // Subtle tone shaping for walls/rear without making the sound too quiet to hear
-    const isBehindPlayer = forwardDot < -0.25;
+    // Realistic tone shaping for walls and rear sounds
+    const isBehindPlayer = forwardDot < -0.2;
     if (spatial.occluded || isBehindPlayer) {
       const lpf = ctx.createBiquadFilter();
       lpf.type = 'lowpass';
-      let cutoff = 4200;
+      let cutoff = 4500;
       if (spatial.occluded) {
-        cutoff = 1650;
-        distGainVal *= 0.88; // Keep 88% volume through walls so you still clearly hear them!
+        cutoff = 1200;
+        distGainVal *= 0.55; // Concrete wall muffling
       } else if (isBehindPlayer) {
-        cutoff = 2600;
-        distGainVal *= 0.94;
+        cutoff = 2400;
+        distGainVal *= 0.82;
       }
       lpf.frequency.setValueAtTime(cutoff, ctx.currentTime);
       distGainNode.connect(lpf);
       tailNode = lpf;
     }
 
-    distGainNode.gain.setValueAtTime(distGainVal, ctx.currentTime);
+    distGainNode.gain.setValueAtTime(Math.max(0.005, distGainVal), ctx.currentTime);
 
     if (typeof ctx.createStereoPanner === 'function') {
       const panner = ctx.createStereoPanner();
