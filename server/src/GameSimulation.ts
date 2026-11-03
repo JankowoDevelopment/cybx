@@ -777,7 +777,7 @@ export class GameSimulation {
           this.playerPitch.set(player.id, input.pitch);
         }
 
-        const floorZ = getFloorHeightAt(player.x, player.y, SERVER_CONFIG.PLAYER_RADIUS, walls);
+        const floorZ = getFloorHeightAt(player.x, player.y, SERVER_CONFIG.PLAYER_RADIUS, walls, player.z || 0);
 
         // Jump pad boost check
         for (const pad of this.map.jumpPads || []) {
@@ -830,11 +830,17 @@ export class GameSimulation {
           speed *= bhopBoost;
         }
 
+        // Check if player walked off a ledge into air
+        if (player.isGrounded && (player.z || 0) > floorZ + 6) {
+          player.isGrounded = false;
+        }
+
         // Vertical movement integration
         if (!player.isGrounded) {
           player.vz = (player.vz || 0) - effGravity * dtSec;
           let nextZ = (player.z || 0) + (player.vz || 0) * dtSec;
-          if (nextZ <= floorZ) {
+          // Landing occurs only when falling (vz <= 0) and reaching the floor surface
+          if ((player.vz || 0) <= 0 && nextZ <= floorZ) {
             if (hasImpactSlam && (player.vz || 0) < -340 && (player.z || 0) > floorZ + 18) {
               this.triggerExplosion(player.x, player.y, 180, 60, player.id);
               this.onSoundEvent?.('impact_slam', undefined, player.id, player.x, player.y);
@@ -849,6 +855,7 @@ export class GameSimulation {
           }
           player.z = nextZ;
         } else {
+          // On surface: blocks act just like floor
           player.z = floorZ;
         }
 

@@ -112,6 +112,12 @@ export function createDefaultMap(): MapData {
       { x: 2610, y: 2685, w: 75, h: 75, maxZ: 80, isWalkableTop: true, wallType: 'crate' },
       { x: 2535, y: 2685, w: 75, h: 75, maxZ: 120, isWalkableTop: true, wallType: 'crate' },
 
+      // Center Cardinal Access Steps
+      { x: 2360, y: 1870, w: 80, h: 70, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+      { x: 2360, y: 2860, w: 80, h: 70, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+      { x: 1870, y: 2360, w: 70, h: 80, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+      { x: 2860, y: 2360, w: 70, h: 80, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+
       // ==========================================
       // NAPOWIETRZNE KŁADKI (CATWALKS)
       // ==========================================
@@ -120,28 +126,42 @@ export function createDefaultMap(): MapData {
       { x: 1280, y: 2350, w: 560, h: 100, maxZ: 80, isWalkableTop: true, wallType: 'catwalk' },
       { x: 2960, y: 2350, w: 560, h: 100, maxZ: 80, isWalkableTop: true, wallType: 'catwalk' },
 
+      // Catwalk Approach Steps (Smooth 40 -> 80 Catwalk Access)
+      { x: 2365, y: 1200, w: 70, h: 70, maxZ: 40, isWalkableTop: true, wallType: 'crate' },
+      { x: 2365, y: 3530, w: 70, h: 70, maxZ: 40, isWalkableTop: true, wallType: 'crate' },
+      { x: 1200, y: 2365, w: 70, h: 70, maxZ: 40, isWalkableTop: true, wallType: 'crate' },
+      { x: 3530, y: 2365, w: 70, h: 70, maxZ: 40, isWalkableTop: true, wallType: 'crate' },
+
       // ==========================================
       // GŁÓWNE BASTIONY STRATEGICZNE
       // ==========================================
-      // Północny Bastion
+      // Północny Bastion & Steps
       { x: 2200, y: 1000, w: 400, h: 80, maxZ: 120, isWalkableTop: true },
       { x: 2000, y: 900, w: 80, h: 280, maxZ: 120, isWalkableTop: true },
       { x: 2720, y: 900, w: 80, h: 280, maxZ: 120, isWalkableTop: true },
+      { x: 2090, y: 1100, w: 75, h: 75, maxZ: 40, isWalkableTop: true, wallType: 'crate' },
+      { x: 2165, y: 1100, w: 75, h: 75, maxZ: 80, isWalkableTop: true, wallType: 'crate' },
 
-      // Południowy Bastion
+      // Południowy Bastion & Steps
       { x: 2200, y: 3720, w: 400, h: 80, maxZ: 120, isWalkableTop: true },
       { x: 2000, y: 3620, w: 80, h: 280, maxZ: 120, isWalkableTop: true },
       { x: 2720, y: 3620, w: 80, h: 280, maxZ: 120, isWalkableTop: true },
+      { x: 2090, y: 3625, w: 75, h: 75, maxZ: 40, isWalkableTop: true, wallType: 'crate' },
+      { x: 2165, y: 3625, w: 75, h: 75, maxZ: 80, isWalkableTop: true, wallType: 'crate' },
 
-      // Zachodni Bastion
+      // Zachodni Bastion & Steps
       { x: 1000, y: 2200, w: 80, h: 400, maxZ: 120, isWalkableTop: true },
       { x: 900, y: 2000, w: 280, h: 80, maxZ: 120, isWalkableTop: true },
       { x: 900, y: 2720, w: 280, h: 80, maxZ: 120, isWalkableTop: true },
+      { x: 1100, y: 2090, w: 75, h: 75, maxZ: 40, isWalkableTop: true, wallType: 'crate' },
+      { x: 1100, y: 2165, w: 75, h: 75, maxZ: 80, isWalkableTop: true, wallType: 'crate' },
 
-      // Wschodni Bastion
+      // Wschodni Bastion & Steps
       { x: 3720, y: 2200, w: 80, h: 400, maxZ: 120, isWalkableTop: true },
       { x: 3620, y: 2000, w: 280, h: 80, maxZ: 120, isWalkableTop: true },
       { x: 3620, y: 2720, w: 280, h: 80, maxZ: 120, isWalkableTop: true },
+      { x: 3625, y: 2090, w: 75, h: 75, maxZ: 40, isWalkableTop: true, wallType: 'crate' },
+      { x: 3625, y: 2165, w: 75, h: 75, maxZ: 80, isWalkableTop: true, wallType: 'crate' },
 
       // ==========================================
       // OSŁONY I SKRZYNIE PRZY SPAWNACH NAROŻNYCH
@@ -175,12 +195,58 @@ export function createDefaultMap(): MapData {
       { x: 970, y: 4030, w: 70, h: 70, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
 
       // ==========================================
-      // FILARY KOLOSSEUM
+      // FILARY KOLOSSEUM I SCHODY WOKÓŁ FILARÓW
       // ==========================================
       { x: 1400, y: 1400, w: 120, h: 120, maxZ: 140 },
+      { x: 1310, y: 1425, w: 70, h: 70, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+      { x: 1425, y: 1310, w: 70, h: 70, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
+
       { x: 3280, y: 1400, w: 120, h: 120, maxZ: 140 },
+      { x: 3420, y: 1425, w: 70, h: 70, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+      { x: 3285, y: 1310, w: 70, h: 70, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
+
       { x: 1400, y: 3280, w: 120, h: 120, maxZ: 140 },
-      { x: 3280, y: 3280, w: 120, h: 120, maxZ: 140 }
+      { x: 1310, y: 3305, w: 70, h: 70, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+      { x: 1425, y: 3420, w: 70, h: 70, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
+
+      { x: 3280, y: 3280, w: 120, h: 120, maxZ: 140 },
+      { x: 3420, y: 3305, w: 70, h: 70, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+      { x: 3285, y: 3420, w: 70, h: 70, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
+
+      // ==========================================
+      // ROZRZUCONE WYSPY PARKOUR W CAŁEJ ARENIE
+      // ==========================================
+      // NW Midfield Island
+      { x: 1850, y: 1200, w: 80, h: 80, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+      { x: 1930, y: 1200, w: 80, h: 80, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
+
+      // NE Midfield Island
+      { x: 2870, y: 1200, w: 80, h: 80, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+      { x: 2790, y: 1200, w: 80, h: 80, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
+
+      // SW Midfield Island
+      { x: 1850, y: 3520, w: 80, h: 80, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+      { x: 1930, y: 3520, w: 80, h: 80, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
+
+      // SE Midfield Island
+      { x: 2870, y: 3520, w: 80, h: 80, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+      { x: 2790, y: 3520, w: 80, h: 80, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
+
+      // West Flank Island
+      { x: 1200, y: 1850, w: 80, h: 80, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+      { x: 1200, y: 1930, w: 80, h: 80, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
+
+      // East Flank Island
+      { x: 3520, y: 1850, w: 80, h: 80, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+      { x: 3520, y: 1930, w: 80, h: 80, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
+
+      // West-South Flank Island
+      { x: 1200, y: 2870, w: 80, h: 80, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+      { x: 1200, y: 2790, w: 80, h: 80, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
+
+      // East-South Flank Island
+      { x: 3520, y: 2870, w: 80, h: 80, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
+      { x: 3520, y: 2790, w: 80, h: 80, maxZ: 90, isWalkableTop: true, wallType: 'crate' }
     ],
 
     // NEONOWE JUMP-PADY (Wybijające pionowo w powietrze z prędkością 520)

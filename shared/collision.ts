@@ -17,14 +17,24 @@ export function circleOverlapsRect(
 }
 
 /**
- * Returns the highest walkable floor height directly below or intersecting the player's circle.
+ * Returns the highest walkable floor height directly below or supporting the player.
+ * Checks that the surface is at or below the player's feet (with a step allowance)
+ * so that high walls or blocks do not suddenly snatch the player from the ground.
  */
-export function getFloorHeightAt(x: number, y: number, radius: number, walls: WallRect[]): number {
+export function getFloorHeightAt(
+  x: number,
+  y: number,
+  radius: number,
+  walls: WallRect[],
+  currentZ: number = 0
+): number {
   let highest = 0;
+  const footRadius = Math.min(14, radius);
   for (let i = 0; i < walls.length; i++) {
     const w = walls[i];
     if (w.isWalkableTop && w.maxZ !== undefined) {
-      if (circleOverlapsRect(x, y, radius, w.x, w.y, w.w, w.h)) {
+      if (currentZ < w.maxZ - 12) continue;
+      if (circleOverlapsRect(x, y, footRadius, w.x, w.y, w.w, w.h)) {
         if (w.maxZ > highest) highest = w.maxZ;
       }
     }
@@ -51,7 +61,7 @@ export function resolveMovement(
       const wall = walls[i];
       const wallMaxZ = wall.maxZ !== undefined ? wall.maxZ : 140;
       // If player is on or above the top surface of this block, horizontal collision is ignored
-      if (currentZ >= wallMaxZ - 2) continue;
+      if (currentZ >= wallMaxZ - 6) continue;
 
       if (circleOverlapsRect(posX, posY, radius, wall.x, wall.y, wall.w, wall.h)) {
         if (deltaX > 0) {
@@ -69,7 +79,7 @@ export function resolveMovement(
     for (let i = 0; i < walls.length; i++) {
       const wall = walls[i];
       const wallMaxZ = wall.maxZ !== undefined ? wall.maxZ : 140;
-      if (currentZ >= wallMaxZ - 2) continue;
+      if (currentZ >= wallMaxZ - 6) continue;
 
       if (circleOverlapsRect(posX, posY, radius, wall.x, wall.y, wall.w, wall.h)) {
         if (deltaY > 0) {

@@ -1410,7 +1410,8 @@ export class Doom3DRenderer {
           deltaX,
           deltaY,
           SERVER_CONFIG.PLAYER_RADIUS,
-          effectiveWalls
+          effectiveWalls,
+          this.predictedY
         );
         this.predictedX = resolved.x;
         this.predictedZ = resolved.y;
@@ -1473,18 +1474,36 @@ export class Doom3DRenderer {
           this.isClientGrounded = Boolean(localPlayer.isGrounded);
         } else {
           const walls = this.getEffectiveWalls();
-          const floorZ = getFloorHeightAt(this.predictedX, this.predictedZ, SERVER_CONFIG.PLAYER_RADIUS, walls);
+          const floorZ = getFloorHeightAt(this.predictedX, this.predictedZ, SERVER_CONFIG.PLAYER_RADIUS, walls, this.predictedY);
+
+          // Client-side jump pad prediction for instantaneous responsive bounce
+          for (const pad of this.mapData.jumpPads || []) {
+            const pdx = this.predictedX - pad.x;
+            const pdy = this.predictedZ - pad.y;
+            if (pdx * pdx + pdy * pdy < pad.radius * pad.radius) {
+              if (this.predictedY <= floorZ + 16 && this.predictedVz <= 60) {
+                this.predictedVz = pad.boostZ;
+                this.isClientGrounded = false;
+                soundSystem.playSound('jump');
+              }
+            }
+          }
+
+          // Check if walked off a ledge into air
+          if (this.isClientGrounded && this.predictedY > floorZ + 6) {
+            this.isClientGrounded = false;
+          }
 
           if (!this.isClientGrounded) {
             this.predictedVz -= SERVER_CONFIG.GRAVITY * dtSec;
             this.predictedY += this.predictedVz * dtSec;
-            if (this.predictedY <= floorZ) {
+            if (this.predictedVz <= 0 && this.predictedY <= floorZ) {
               this.predictedY = floorZ;
               this.predictedVz = 0;
               this.isClientGrounded = true;
               this.clientLastLandedTime = performance.now();
             }
-            this.predictedY += (serverZ - this.predictedY) * Math.min(1, dtSec * 6);
+            this.predictedY += (serverZ - this.predictedY) * Math.min(1, dtSec * 8);
           } else {
             this.predictedY += (floorZ - this.predictedY) * Math.min(1, dtSec * 25);
             if (performance.now() - this.clientLastLandedTime > 160) {
