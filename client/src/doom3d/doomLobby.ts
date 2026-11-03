@@ -179,22 +179,22 @@ export class DoomLobby {
       </div>
 
       <!-- BOTTOM CONTROL DOCK: Modern Cyberpunk Command Console -->
-      <div style="position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 12; width: 750px; max-width: 94vw; background: rgba(7, 10, 18, 0.92); backdrop-filter: blur(16px); border: 2px solid rgba(239, 68, 68, 0.65); border-radius: 16px; padding: 20px 28px; box-shadow: 0 18px 55px rgba(0, 0, 0, 0.9), 0 0 35px rgba(239, 68, 68, 0.25); clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);">
-        <!-- Pre-Join Controls -->
-        <div id="lobby-prejoin" style="display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap;">
-          <button id="btn-create-room" class="cyber-btn cyber-btn-red" style="flex: 1.3; min-width: 230px; padding: 16px 24px; font-size: 15px;">
+      <div style="position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 12; width: 840px; max-width: 96vw; background: rgba(7, 10, 18, 0.94); backdrop-filter: blur(16px); border: 2px solid rgba(239, 68, 68, 0.65); border-radius: 16px; padding: 18px 24px; box-shadow: 0 18px 55px rgba(0, 0, 0, 0.9), 0 0 35px rgba(239, 68, 68, 0.25); clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);">
+        <!-- Pre-Join Controls (Never wrap, keep DOŁĄCZ always visible) -->
+        <div id="lobby-prejoin" style="display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; flex-wrap: nowrap;">
+          <button id="btn-create-room" class="cyber-btn cyber-btn-red" style="flex: 1.1; min-width: 0; padding: 14px 18px; font-size: 14px; white-space: nowrap;">
             ⚔️ STWÓRZ NOWY POKÓJ 3D
           </button>
 
-          <div style="font-family: 'Orbitron', sans-serif; font-size: 12px; color: #64748b; font-weight: 900; letter-spacing: 2px;">
+          <div style="font-family: 'Orbitron', sans-serif; font-size: 12px; color: #64748b; font-weight: 900; letter-spacing: 2px; flex-shrink: 0;">
             LUB
           </div>
 
-          <div style="flex: 1.4; min-width: 250px; display: flex; gap: 10px;">
+          <div style="flex: 1.3; min-width: 0; display: flex; align-items: center; gap: 8px;">
             <input type="text" id="input-room-code" placeholder="KOD POKOJU" maxlength="6"
-              style="flex: 1; padding: 13px; border-radius: 8px; background: #03050c; border: 1px solid #38bdf8; color: #fbbf24; font-family: 'Orbitron', sans-serif; font-size: 18px; font-weight: 900; text-transform: uppercase; text-align: center; outline: none; letter-spacing: 4px; box-shadow: inset 0 0 14px rgba(56, 189, 248, 0.2);" />
-            <button id="btn-join-room" class="cyber-btn cyber-btn-cyan" style="padding: 13px 24px; font-size: 14px;">
-              DOŁĄCZ
+              style="width: 140px; min-width: 100px; flex: 1; padding: 13px 8px; border-radius: 8px; background: #03050c; border: 1px solid #38bdf8; color: #fbbf24; font-family: 'Orbitron', sans-serif; font-size: 17px; font-weight: 900; text-transform: uppercase; text-align: center; outline: none; letter-spacing: 3px; box-shadow: inset 0 0 14px rgba(56, 189, 248, 0.2);" />
+            <button id="btn-join-room" class="cyber-btn cyber-btn-cyan" style="flex-shrink: 0; padding: 13px 22px; font-size: 14px; white-space: nowrap;">
+              DOŁĄCZ ➔
             </button>
           </div>
         </div>
@@ -257,6 +257,12 @@ export class DoomLobby {
         playerName: currentProf.nickname,
         cosmetics: currentProf.cosmetics
       });
+    });
+
+    inputCode.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        btnJoin.click();
+      }
     });
 
     btnJoin.addEventListener('click', async () => {
