@@ -6,6 +6,7 @@ export {
   findTouchingWallNormal,
   lineLineIntersection,
   lineRectIntersection,
+  lineSegmentAABBIntersection,
   lineSegmentCylinderIntersection,
   hasLineOfSight
 } from '../../shared/collision.js';

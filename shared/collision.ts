@@ -213,17 +213,142 @@ export function lineSegmentCylinderIntersection(
   return { hit: true, hitX: closestX, hitY: closestY, hitZ: bulletZ, isHeadshot };
 }
 
+/**
+ * Accurate 3D Line Segment vs Axis-Aligned 3D Box (AABB) intersection.
+ * Checks whether a 3D ray segment actually hits the solid volume of a wall or block,
+ * correctly allowing bullets to pass cleanly over the top or under elevated structures.
+ */
+export function lineSegmentAABBIntersection(
+  x1: number, y1: number, z1: number,
+  x2: number, y2: number, z2: number,
+  minX: number, minY: number, minZ: number,
+  maxX: number, maxY: number, maxZ: number
+): { hit: boolean; hitX: number; hitY: number; hitZ: number; normalX: number; normalY: number } {
+  // 1. Trivial rejection: if both ends are on the same side outside the box
+  if (Math.min(x1, x2) > maxX || Math.max(x1, x2) < minX) return { hit: false, hitX: 0, hitY: 0, hitZ: 0, normalX: 0, normalY: 0 };
+  if (Math.min(y1, y2) > maxY || Math.max(y1, y2) < minY) return { hit: false, hitX: 0, hitY: 0, hitZ: 0, normalX: 0, normalY: 0 };
+  if (Math.min(z1, z2) > maxZ || Math.max(z1, z2) < minZ) return { hit: false, hitX: 0, hitY: 0, hitZ: 0, normalX: 0, normalY: 0 };
+
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const dz = z2 - z1;
+
+  let tMin = 0;
+  let tMax = 1;
+  let normX = 0;
+  let normY = 0;
+
+  // X slab
+  if (Math.abs(dx) > 1e-6) {
+    let t1 = (minX - x1) / dx;
+    let t2 = (maxX - x1) / dx;
+    let n1 = -1;
+    let n2 = 1;
+    if (t1 > t2) {
+      const tempT = t1; t1 = t2; t2 = tempT;
+      const tempN = n1; n1 = n2; n2 = tempN;
+    }
+    if (t1 > tMin) {
+      tMin = t1;
+      normX = n1;
+      normY = 0;
+    }
+    if (t2 < tMax) tMax = t2;
+    if (tMin > tMax) return { hit: false, hitX: 0, hitY: 0, hitZ: 0, normalX: 0, normalY: 0 };
+  } else {
+    if (x1 < minX || x1 > maxX) return { hit: false, hitX: 0, hitY: 0, hitZ: 0, normalX: 0, normalY: 0 };
+  }
+
+  // Y slab
+  if (Math.abs(dy) > 1e-6) {
+    let t1 = (minY - y1) / dy;
+    let t2 = (maxY - y1) / dy;
+    let n1 = -1;
+    let n2 = 1;
+    if (t1 > t2) {
+      const tempT = t1; t1 = t2; t2 = tempT;
+      const tempN = n1; n1 = n2; n2 = tempN;
+    }
+    if (t1 > tMin) {
+      tMin = t1;
+      normX = 0;
+      normY = n1;
+    }
+    if (t2 < tMax) tMax = t2;
+    if (tMin > tMax) return { hit: false, hitX: 0, hitY: 0, hitZ: 0, normalX: 0, normalY: 0 };
+  } else {
+    if (y1 < minY || y1 > maxY) return { hit: false, hitX: 0, hitY: 0, hitZ: 0, normalX: 0, normalY: 0 };
+  }
+
+  // Z slab
+  if (Math.abs(dz) > 1e-6) {
+    let t1 = (minZ - z1) / dz;
+    let t2 = (maxZ - z1) / dz;
+    if (t1 > t2) {
+      const temp = t1; t1 = t2; t2 = temp;
+    }
+    if (t1 > tMin) {
+      tMin = t1;
+      normX = 0;
+      normY = 0;
+    }
+    if (t2 < tMax) tMax = t2;
+    if (tMin > tMax) return { hit: false, hitX: 0, hitY: 0, hitZ: 0, normalX: 0, normalY: 0 };
+  } else {
+    if (z1 < minZ || z1 > maxZ) return { hit: false, hitX: 0, hitY: 0, hitZ: 0, normalX: 0, normalY: 0 };
+  }
+
+  // If start point is strictly inside the box volume
+  if (x1 >= minX && x1 <= maxX && y1 >= minY && y1 <= maxY && z1 >= minZ && z1 <= maxZ) {
+    return { hit: true, hitX: x1, hitY: y1, hitZ: z1, normalX: normX, normalY: normY };
+  }
+
+  if (tMin >= 0 && tMin <= 1) {
+    return {
+      hit: true,
+      hitX: x1 + tMin * dx,
+      hitY: y1 + tMin * dy,
+      hitZ: z1 + tMin * dz,
+      normalX: normX,
+      normalY: normY
+    };
+  }
+
+  return { hit: false, hitX: 0, hitY: 0, hitZ: 0, normalX: 0, normalY: 0 };
+}
+
 export function hasLineOfSight(
   x1: number,
   y1: number,
   x2: number,
   y2: number,
-  walls: WallRect[]
+  walls: WallRect[],
+  z1: number = 34,
+  z2: number = 34
 ): boolean {
   for (let i = 0; i < walls.length; i++) {
     const w = walls[i];
     if (w.isPerimeter) continue;
+    const wallMaxZ = w.maxZ !== undefined ? w.maxZ : 140;
+    const wallMinZ = w.minZ !== undefined ? w.minZ : 0;
+
+    // If both ends are higher than the wall, line of sight is clear
+    if (Math.min(z1, z2) >= wallMaxZ) continue;
+    // If both ends are below an elevated structure, line of sight is clear
+    if (Math.max(z1, z2) <= wallMinZ) continue;
+
     if (lineRectIntersection(x1, y1, x2, y2, w.x, w.y, w.w, w.h)) {
+      const wallCenterX = w.x + w.w / 2;
+      const wallCenterY = w.y + w.h / 2;
+      const totalDist = Math.hypot(x2 - x1, y2 - y1);
+      if (totalDist > 0.01) {
+        const distToWall = Math.hypot(wallCenterX - x1, wallCenterY - y1);
+        const t = Math.max(0, Math.min(1, distToWall / totalDist));
+        const rayZ = z1 + t * (z2 - z1);
+        if (rayZ >= wallMaxZ || rayZ <= wallMinZ) {
+          continue;
+        }
+      }
       return false;
     }
   }

@@ -18,7 +18,7 @@ import { DEADLOCK_ITEMS } from '../../shared/items.js';
 import { ROUNDS_CARDS, RoundsCardDef, drawWeightedRandomCards } from '../../shared/cards.js';
 import { PlayerCosmetics, DEFAULT_COSMETICS, getNeonSkin } from '../../shared/skins.js';
 import { SERVER_CONFIG } from '../../shared/constants.js';
-import { resolveWallCollisions, resolveMovement, circleOverlapsRect, lineRectIntersection, lineSegmentCircleIntersection, getFloorHeightAt, lineSegmentCylinderIntersection, findTouchingWallNormal } from './Collision.js';
+import { resolveWallCollisions, resolveMovement, circleOverlapsRect, lineRectIntersection, lineSegmentAABBIntersection, lineSegmentCircleIntersection, getFloorHeightAt, lineSegmentCylinderIntersection, findTouchingWallNormal } from './Collision.js';
 import { updateZombie } from './ZombieAI.js';
 
 export interface PlayerInput {
@@ -987,43 +987,53 @@ export class GameSimulation {
         continue;
       }
 
-      // Check wall collisions along the path (taking vertical block height into account)
+      // Check wall collisions along the path (taking 3D vertical block height into account)
       let hitWall = false;
       for (const wall of walls) {
         const wallMaxZ = wall.maxZ !== undefined ? wall.maxZ : 140;
-        // If bullet path is entirely above the wall/crate, it passes cleanly overhead
-        if (Math.min(prevZ, nextZ) > wallMaxZ) continue;
+        const wallMinZ = wall.minZ !== undefined ? wall.minZ : 0;
 
-        if (lineRectIntersection(prevX, prevY, nextX, nextY, wall.x, wall.y, wall.w, wall.h)) {
+        // If bullet path is entirely above the wall/crate, it passes cleanly overhead
+        if (Math.min(prevZ, nextZ) >= wallMaxZ) continue;
+        // If bullet path is entirely below an elevated structure, it passes cleanly underneath
+        if (Math.max(prevZ, nextZ) <= wallMinZ) continue;
+
+        const aabbHit = lineSegmentAABBIntersection(
+          prevX, prevY, prevZ,
+          nextX, nextY, nextZ,
+          wall.x, wall.y, wallMinZ,
+          wall.x + wall.w, wall.y + wall.h, wallMaxZ
+        );
+
+        if (aabbHit.hit) {
           hitWall = true;
 
           // BOUNCE / RICOCHET MECHANIC
           if (b.bouncesLeft > 0) {
             b.bouncesLeft--;
-            const fromLeft = prevX <= wall.x;
-            const fromRight = prevX >= wall.x + wall.w;
-            const fromTop = prevY <= wall.y;
-            const fromBottom = prevY >= wall.y + wall.h;
-
-            if (fromLeft || fromRight) {
+            if (aabbHit.normalX !== 0) {
               b.vx = -b.vx;
             }
-            if (fromTop || fromBottom) {
+            if (aabbHit.normalY !== 0) {
+              b.vy = -b.vy;
+            }
+            if (aabbHit.normalX === 0 && aabbHit.normalY === 0) {
+              b.vx = -b.vx;
               b.vy = -b.vy;
             }
 
-            b.x = prevX + b.vx * dtSec * 0.4;
-            b.y = prevY + b.vy * dtSec * 0.4;
-            b.z = nextZ;
+            b.x = aabbHit.hitX + b.vx * dtSec * 0.3;
+            b.y = aabbHit.hitY + b.vy * dtSec * 0.3;
+            b.z = aabbHit.hitZ;
 
-            this.onHitEvent?.(nextX, nextY, 0, false, true, b.shooterId);
-            this.onSoundEvent?.('hit', b.weaponId, b.shooterId, nextX, nextY);
+            this.onHitEvent?.(aabbHit.hitX, aabbHit.hitY, 0, false, true, b.shooterId);
+            this.onSoundEvent?.('hit', b.weaponId, b.shooterId, aabbHit.hitX, aabbHit.hitY);
             hitWall = false; // Bullet bounces and survives!
             break;
           } else {
-            this.onHitEvent?.(nextX, nextY, 0, false, true, b.shooterId);
+            this.onHitEvent?.(aabbHit.hitX, aabbHit.hitY, 0, false, true, b.shooterId);
             if (b.explosiveRadius && b.explosiveRadius > 0) {
-              this.triggerExplosion(nextX, nextY, b.explosiveRadius, Math.round(b.damage * 0.9), b.shooterId);
+              this.triggerExplosion(aabbHit.hitX, aabbHit.hitY, b.explosiveRadius, Math.round(b.damage * 0.9), b.shooterId);
             }
             break;
           }

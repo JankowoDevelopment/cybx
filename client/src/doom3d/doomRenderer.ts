@@ -1061,7 +1061,7 @@ export class Doom3DRenderer {
    * (bullets, barrels, wall-buy holograms, power-ups, floating damage numbers, explosions).
    * Note: Opponent 3D Models & X-Ray Wallhack NEVER call this and are always visible!
    */
-  private isPointVisibleToPlayer(x: number, z: number, walls: WallRect[], marginRadius: number = 0): boolean {
+  private isPointVisibleToPlayer(x: number, z: number, walls: WallRect[], marginRadius: number = 0, targetY: number = 34): boolean {
     if (!settingsManager.get().occlusionCulling) return true;
     if (this.latestSnapshot?.roundState === 'countdown') return true;
 
@@ -1084,8 +1084,8 @@ export class Doom3DRenderer {
       return false;
     }
 
-    // 2. Wall Occlusion Raycast check (cull if blocked by an arena wall/pillar)
-    if (!hasLineOfSight(this.camera.position.x, this.camera.position.z, x, z, walls)) {
+    // 2. Wall Occlusion Raycast check (cull if blocked by an arena wall/pillar in 3D)
+    if (!hasLineOfSight(this.camera.position.x, this.camera.position.z, x, z, walls, this.camera.position.y, targetY)) {
       this.culledObjectsCount++;
       return false;
     }
@@ -1938,8 +1938,11 @@ export class Doom3DRenderer {
       const bx = b.x + b.vx * interpSec;
       const bz = b.y + b.vy * interpSec;
 
-      // Skip rendering bullets that are behind the player or occluded behind a wall!
-      if (!this.isPointVisibleToPlayer(bx, bz, walls, b.bulletRadius || 8)) {
+      const by = (b.z !== undefined ? b.z : 24) + (b.vz || 0) * interpSec;
+
+      // Never cull own bullets, and only cull remote bullets if occluded in 3D
+      const isSelfBullet = b.shooterId === networkManager.playerId;
+      if (!isSelfBullet && !this.isPointVisibleToPlayer(bx, bz, walls, b.bulletRadius || 8, by)) {
         continue;
       }
 
@@ -1963,9 +1966,6 @@ export class Doom3DRenderer {
       const entry = this.bulletPool[poolIdx++];
       const radius = b.bulletRadius || 5;
       const spriteSize = Math.min(82, Math.max(10, radius * 3.2));
-
-      // Boost bullet & tracer HDR color so UnrealBloomPass makes projectiles glow intensely!
-      const by = (b.z !== undefined ? b.z : 24) + (b.vz || 0) * interpSec;
 
       entry.spriteMat.color.setHex(col).multiplyScalar(2.4);
       entry.sprite.scale.set(spriteSize, spriteSize, 1);
