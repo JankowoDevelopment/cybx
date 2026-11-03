@@ -1069,16 +1069,16 @@ export class Doom3DRenderer {
     const dz = z - this.camera.position.z;
     const distSq = dx * dx + dz * dz;
 
-    // Objects right next to the player are always visible
-    if (distSq <= (85 + marginRadius) * (85 + marginRadius)) {
+    // Objects near the player are always visible
+    if (distSq <= (180 + marginRadius) * (180 + marginRadius)) {
       return true;
     }
 
     const dist = Math.sqrt(distSq);
     const forwardDot = (dx * this.camForwardX + dz * this.camForwardZ) / dist;
 
-    // 1. Behind-camera / View-cone check (cull anything behind the player's field of view)
-    const minCos = marginRadius > 60 ? -0.15 : 0.12;
+    // 1. Behind-camera check (cull anything strictly behind the player's 190° view cone)
+    const minCos = marginRadius > 60 ? -0.25 : -0.15;
     if (forwardDot < minCos) {
       this.culledObjectsCount++;
       return false;
@@ -2054,8 +2054,8 @@ export class Doom3DRenderer {
         this.barrelMeshes.set(b.id, barrelGroup);
       }
 
-      // Cull barrel if behind player or occluded behind a wall!
-      const isVis = this.isPointVisibleToPlayer(b.x, b.y, walls, 24);
+      // Cull barrel only if behind player or occluded behind an intervening wall!
+      const isVis = this.isPointVisibleToPlayer(b.x, b.y, walls, 24, 20);
       barrelGroup.visible = isVis;
       if (isVis) {
         barrelGroup.position.set(b.x, 0, b.y);

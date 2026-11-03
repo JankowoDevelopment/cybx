@@ -337,19 +337,36 @@ export function hasLineOfSight(
     // If both ends are below an elevated structure, line of sight is clear
     if (Math.max(z1, z2) <= wallMinZ) continue;
 
-    if (lineRectIntersection(x1, y1, x2, y2, w.x, w.y, w.w, w.h)) {
-      const wallCenterX = w.x + w.w / 2;
-      const wallCenterY = w.y + w.h / 2;
-      const totalDist = Math.hypot(x2 - x1, y2 - y1);
-      if (totalDist > 0.01) {
-        const distToWall = Math.hypot(wallCenterX - x1, wallCenterY - y1);
-        const t = Math.max(0, Math.min(1, distToWall / totalDist));
-        const rayZ = z1 + t * (z2 - z1);
-        if (rayZ >= wallMaxZ || rayZ <= wallMinZ) {
-          continue;
+    // The target object cannot be occluded by its own volume or the block it rests on
+    if (x2 >= w.x - 2 && x2 <= w.x + w.w + 2 && y2 >= w.y - 2 && y2 <= w.y + w.h + 2) {
+      continue;
+    }
+
+    // The player's camera cannot be occluded by the block/crate they are standing on
+    if (x1 >= w.x - 2 && x1 <= w.x + w.w + 2 && y1 >= w.y - 2 && y1 <= w.y + w.h + 2) {
+      continue;
+    }
+
+    const aabb = lineSegmentAABBIntersection(
+      x1, y1, z1,
+      x2, y2, z2,
+      w.x, w.y, wallMinZ,
+      w.x + w.w, w.y + w.h, wallMaxZ
+    );
+
+    if (aabb.hit) {
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const lenSq = dx * dx + dy * dy;
+      if (lenSq > 0.01) {
+        const hitT = ((aabb.hitX - x1) * dx + (aabb.hitY - y1) * dy) / lenSq;
+        // Occlusion only occurs if the wall is an actual intermediate obstacle
+        if (hitT > 0.03 && hitT < 0.97) {
+          return false;
         }
+      } else {
+        return false;
       }
-      return false;
     }
   }
   return true;
