@@ -444,6 +444,42 @@ export class GameSimulation {
     }
   }
 
+  public triggerJump(playerId: string): void {
+    if (this.roundState !== 'active') return;
+    const player = this.players.get(playerId);
+    if (!player || player.downed || player.isDead) return;
+
+    if (player.isGrounded) {
+      const now = Date.now();
+      const lastLanded = this.playerLastGrounded.get(player.id) || 0;
+      const landedAgo = now - lastLanded;
+
+      let jumpImpulse = SERVER_CONFIG.JUMP_IMPULSE;
+      let maxBhopBonus = SERVER_CONFIG.BHOP_MAX_SPEED_BONUS_PCT;
+      let stepBhopBonus = SERVER_CONFIG.BHOP_SPEED_BONUS_PCT;
+
+      for (const cardId of (player.cards || [])) {
+        const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+        if (card?.stats.jumpForcePct) jumpImpulse *= 1 + card.stats.jumpForcePct / 100;
+        if (card?.stats.bhopMultiplierPct) {
+          maxBhopBonus += 50;
+          stepBhopBonus += 10;
+        }
+      }
+
+      if (landedAgo <= SERVER_CONFIG.BHOP_WINDOW_MS && (player.bhopStreak || 0) > 0) {
+        const maxStreak = Math.floor(maxBhopBonus / stepBhopBonus);
+        player.bhopStreak = Math.min(maxStreak, (player.bhopStreak || 0) + 1);
+        this.onSoundEvent?.('bhop', undefined, player.id, player.x, player.y);
+      } else {
+        player.bhopStreak = 1;
+        this.onSoundEvent?.('jump', undefined, player.id, player.x, player.y);
+      }
+      player.vz = jumpImpulse;
+      player.isGrounded = false;
+    }
+  }
+
   public triggerDash(playerId: string): void {
     if (this.roundState !== 'active') return;
     const player = this.players.get(playerId);
@@ -776,18 +812,8 @@ export class GameSimulation {
 
         // Process jump key press
         if (input.jump && player.isGrounded) {
-          const lastLanded = this.playerLastGrounded.get(player.id) || 0;
-          const landedAgo = now - lastLanded;
-          if (landedAgo <= SERVER_CONFIG.BHOP_WINDOW_MS && (player.bhopStreak || 0) > 0) {
-            const maxStreak = Math.floor(maxBhopBonus / stepBhopBonus);
-            player.bhopStreak = Math.min(maxStreak, (player.bhopStreak || 0) + 1);
-            this.onSoundEvent?.('bhop', undefined, player.id, player.x, player.y);
-          } else {
-            player.bhopStreak = 1;
-            this.onSoundEvent?.('jump', undefined, player.id, player.x, player.y);
-          }
-          player.vz = jumpImpulse;
-          player.isGrounded = false;
+          this.triggerJump(player.id);
+          input.jump = false;
         }
 
         // Reset bhop streak if walking on ground for too long

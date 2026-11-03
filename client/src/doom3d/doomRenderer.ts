@@ -854,7 +854,12 @@ export class Doom3DRenderer {
       }
     }
 
-    const serverYaw = Math.atan2(this.camForwardZ || 0, this.camForwardX || 1);
+    const aimDir = new THREE.Vector3();
+    this.camera.getWorldDirection(aimDir);
+    aimDir.normalize();
+    const serverYaw = Math.atan2(aimDir.z, aimDir.x);
+    const serverPitch = Math.asin(Math.max(-0.99, Math.min(0.99, aimDir.y)));
+
     networkManager.send({
       type: 'input',
       up: forward > 0,
@@ -864,7 +869,7 @@ export class Doom3DRenderer {
       moveX,
       moveY,
       yaw: serverYaw,
-      pitch: this.pitch,
+      pitch: serverPitch,
       jump: this.pressedKeys.has('Space'),
       mouseX: this.predictedX + Math.cos(serverYaw) * 100,
       mouseY: this.predictedZ + Math.sin(serverYaw) * 100,
@@ -964,7 +969,15 @@ export class Doom3DRenderer {
       if (this.cardDraftModal.isOpen || this.settingsModal.isOpen) return;
       this.pressedKeys.add(e.code);
 
-      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+      if (e.code === 'Space') {
+        if (this.isClientGrounded && this.latestSnapshot?.roundState === 'active') {
+          this.predictedVz = SERVER_CONFIG.JUMP_IMPULSE;
+          this.isClientGrounded = false;
+          networkManager.send({ type: 'jump' });
+        }
+      }
+
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
         this.sendImmediateMovementInput();
       }
 
@@ -1129,11 +1142,8 @@ export class Doom3DRenderer {
     };
 
     networkManager.onHitEvent = (hit) => {
-      if (hit.shooterId === networkManager.playerId) {
+      if (hit.shooterId === networkManager.playerId && !hit.isWall) {
         this.weaponRenderer.triggerHitmarker(hit.isKill);
-      }
-
-      if (!hit.isWall) {
         this.spawn3DDamageText(hit.x, hit.y, hit.damage, hit.isKill);
       }
     };
@@ -1426,18 +1436,13 @@ export class Doom3DRenderer {
 
         const serverZ = localPlayer.z || 0;
         const dZ = serverZ - this.predictedY;
-        if (Math.abs(dZ) > 30) {
+        if (Math.abs(dZ) > 95) {
           this.predictedY = serverZ;
           this.predictedVz = localPlayer.vz || 0;
           this.isClientGrounded = Boolean(localPlayer.isGrounded);
         } else {
           const walls = this.getEffectiveWalls();
           const floorZ = getFloorHeightAt(this.predictedX, this.predictedZ, SERVER_CONFIG.PLAYER_RADIUS, walls);
-
-          if (this.pressedKeys.has('Space') && this.isClientGrounded && snapshot?.roundState === 'active') {
-            this.predictedVz = SERVER_CONFIG.JUMP_IMPULSE;
-            this.isClientGrounded = false;
-          }
 
           if (!this.isClientGrounded) {
             this.predictedVz -= SERVER_CONFIG.GRAVITY * dtSec;
@@ -1447,6 +1452,7 @@ export class Doom3DRenderer {
               this.predictedVz = 0;
               this.isClientGrounded = true;
             }
+            this.predictedY += (serverZ - this.predictedY) * Math.min(1, dtSec * 6);
           } else {
             this.predictedY += (floorZ - this.predictedY) * Math.min(1, dtSec * 25);
           }
@@ -1457,7 +1463,11 @@ export class Doom3DRenderer {
         this.camera.position.y = eyeHeight + this.predictedY + bobY;
       }
 
-      const serverYaw = Math.atan2(forwardDir.z, forwardDir.x);
+      const aimDir = new THREE.Vector3();
+      this.camera.getWorldDirection(aimDir);
+      aimDir.normalize();
+      const serverYaw = Math.atan2(aimDir.z, aimDir.x);
+      const serverPitch = Math.asin(Math.max(-0.99, Math.min(0.99, aimDir.y)));
 
       // Throttle network input packets to ~33Hz (30ms) to keep WebSocket & Server CPU fast
       if (snapshot?.roundState === 'active' && timestamp - this.lastInputSendTime >= 30) {
@@ -1471,7 +1481,7 @@ export class Doom3DRenderer {
           moveX,
           moveY,
           yaw: serverYaw,
-          pitch: this.pitch,
+          pitch: serverPitch,
           jump: this.pressedKeys.has('Space'),
           mouseX: this.predictedX + Math.cos(serverYaw) * 100,
           mouseY: this.predictedZ + Math.sin(serverYaw) * 100,
@@ -1876,17 +1886,17 @@ export class Doom3DRenderer {
       entry.sprite.visible = true;
 
       const speed = Math.hypot(b.vx, b.vy);
-      const tracerLen = Math.min(48, Math.max(12, speed * 0.028));
-      const yawAngle = Math.atan2(b.vx, b.vy);
-      const pitchAngle = -Math.atan2(b.vz || 0, speed || 1);
+      const totalSpeed = Math.hypot(b.vx, b.vy, b.vz || 0);
+      const tracerLen = Math.min(48, Math.max(12, totalSpeed * 0.028));
+      const dir3D = new THREE.Vector3(b.vx, b.vz || 0, b.vy).normalize();
 
       entry.tracerMat.color.setHex(col).multiplyScalar(2.4);
       entry.tracer.scale.set(Math.max(1, radius * 0.25), Math.max(1, radius * 0.25), tracerLen);
-      entry.tracer.rotation.set(pitchAngle, yawAngle, 0);
+      entry.tracer.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir3D);
       entry.tracer.position.set(
-        bx - (b.vx / (speed || 1)) * (tracerLen * 0.5),
-        Math.max(2, by),
-        bz - (b.vy / (speed || 1)) * (tracerLen * 0.5)
+        bx - (b.vx / (totalSpeed || 1)) * (tracerLen * 0.5),
+        Math.max(2, by - ((b.vz || 0) / (totalSpeed || 1)) * (tracerLen * 0.5)),
+        bz - (b.vy / (totalSpeed || 1)) * (tracerLen * 0.5)
       );
       entry.tracer.visible = true;
     }

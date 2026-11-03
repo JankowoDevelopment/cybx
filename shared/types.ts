@@ -241,6 +241,7 @@ export type ClientPacket =
   | { type: 'start_game' }
   | { type: 'input'; up: boolean; down: boolean; left: boolean; right: boolean; mouseX: number; mouseY: number; shoot: boolean; yaw?: number; pitch?: number; moveX?: number; moveY?: number; jump?: boolean }
   | { type: 'dash' }
+  | { type: 'jump' }
   | { type: 'grenade'; targetX: number; targetY: number }
   | { type: 'reload' }
   | { type: 'interact' }

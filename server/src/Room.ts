@@ -190,9 +190,15 @@ export class Room {
           mouseY: packet.mouseY,
           shoot: packet.shoot,
           yaw: packet.yaw,
+          pitch: packet.pitch,
           moveX: packet.moveX,
-          moveY: packet.moveY
+          moveY: packet.moveY,
+          jump: packet.jump
         });
+        break;
+
+      case 'jump':
+        this.simulation.triggerJump(clientId);
         break;
 
       case 'dash':
