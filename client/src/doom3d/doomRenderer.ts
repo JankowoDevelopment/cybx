@@ -14,6 +14,8 @@ import { createDefaultMap, MapData, WallRect } from '@shared/map.js';
 import { createDoomTextures, DoomTextureSet } from './doomTextures.js';
 import { DoomWeaponRenderer, create3DWeaponMesh } from './doomWeapon.js';
 import { createCyberCharacterModel } from './characterModel.js';
+import { getNeonSkin } from '@shared/skins.js';
+import { profileManager } from '../settings/profileManager.js';
 import { DoomHud } from './doomHud.js';
 import { ShopModal } from '../ui/shopModal.js';
 import { CardDraftModal } from '../ui/cardDraftModal.js';
@@ -367,7 +369,7 @@ export class Doom3DRenderer {
     this.scene.add(sunLight.target);
 
     // Tactical Flashlight on local player camera
-    const playerLight = new THREE.PointLight(0x38bdf8, 2.4, 650);
+    const playerLight = new THREE.PointLight(0xffffff, 2.2, 650);
     playerLight.position.set(0, 4, 0);
     this.camera.add(playerLight);
     this.scene.add(this.camera);
@@ -564,11 +566,6 @@ export class Doom3DRenderer {
       topTrim.position.set(cx, h + 1, cz);
       this.scene.add(topTrim);
       this.wallMeshes.push(topTrim);
-
-      // Bottom Floor-Skirt HDR Neon Strip (creates intense floor contact glow!)
-      const botTrim = new THREE.Mesh(trimGeo, wall.isPerimeter ? redNeonMat : cyanNeonMat);
-      botTrim.position.set(cx, 1.8, cz);
-      this.scene.add(botTrim);
 
       // Mid-height Cyber Accent Line on interior walls & pillars
       if (!wall.isPerimeter) {
@@ -1329,7 +1326,7 @@ export class Doom3DRenderer {
         });
       }
 
-      this.weaponRenderer.update(dtMs, isMoving, localPlayer.weaponId, localPlayer.reloadProgress);
+      this.weaponRenderer.update(dtMs, isMoving, localPlayer.weaponId, localPlayer.reloadProgress, localPlayer.cosmetics);
       this.updatePrompts(this.predictedX, this.predictedZ, localPlayer);
     }
 
@@ -1682,13 +1679,19 @@ export class Doom3DRenderer {
       }
 
       let col = 0x38bdf8;
-      if (b.weaponId === 'shotgun' || b.weaponId === 'flamethrower') col = 0xf97316;
-      else if (b.weaponId === 'raygun') col = 0x22c55e;
-      else if (b.weaponId === 'sniper') col = 0xe879f9;
-      else if (b.weaponId === 'minigun') col = 0xfacc15;
-      else if (b.weaponId === 'rpg') col = 0xef4444;
-      else if (b.weaponId === 'crossbow') col = 0xc084fc;
-      else if (b.weaponId === 'gauss') col = 0x06b6d4;
+      const shooter = snapshot.players.find((p) => p.id === b.shooterId);
+      const shooterNeonId = shooter?.cosmetics?.neonSkinId || (b.shooterId === networkManager.playerId ? profileManager.get().cosmetics.neonSkinId : undefined);
+      if (shooterNeonId) {
+        col = parseInt(getNeonSkin(shooterNeonId).colorHex.replace('#', '0x'), 16);
+      } else {
+        if (b.weaponId === 'shotgun' || b.weaponId === 'flamethrower') col = 0xf97316;
+        else if (b.weaponId === 'raygun') col = 0x22c55e;
+        else if (b.weaponId === 'sniper') col = 0xe879f9;
+        else if (b.weaponId === 'minigun') col = 0xfacc15;
+        else if (b.weaponId === 'rpg') col = 0xef4444;
+        else if (b.weaponId === 'crossbow') col = 0xc084fc;
+        else if (b.weaponId === 'gauss') col = 0x06b6d4;
+      }
       if (b.isTesla) col = 0xa855f7;
       if (b.bouncesLeft > 0) col = 0xec4899;
 

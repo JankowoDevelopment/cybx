@@ -162,31 +162,31 @@ export function createCyberCharacterModel(
   // 5. Heroic Two-Handed Weapon Showcase Stance
   const armGeo = new THREE.BoxGeometry(4.6, 14, 4.6);
 
-  // Group for the 3D Weapon (Scaled 1.65x and held in front of chest)
+  // Group for the 3D Weapon (Scaled 1.65x and held high across chest)
   const gunGroup = new THREE.Group();
-  gunGroup.position.set(1.2, 23.5, 11.5);
-  gunGroup.rotation.set(-0.06, Math.PI - 0.42, 0.14);
+  gunGroup.position.set(-0.5, 29.0, 9.2);
+  gunGroup.rotation.set(-0.18, -Math.PI * 0.42, 0.35);
 
   const gun = create3DWeaponMesh(initialWeapon, cos.weaponSkinId, cos.neonSkinId);
   gun.scale.set(1.65, 1.65, 1.65);
   gunGroup.add(gun);
   group.add(gunGroup);
 
-  // Right Arm (Holding Grip)
+  // Right Arm (Holding Pistol Grip on right side)
   const armR = new THREE.Group();
-  armR.position.set(11, 28, 0);
+  armR.position.set(11, 29, 0);
   const armRMesh = new THREE.Mesh(armGeo, armorMat);
-  armRMesh.rotation.set(Math.PI * 0.40, 0.16, -0.42);
-  armRMesh.position.set(-2.5, -4.2, 5.2);
+  armRMesh.rotation.set(Math.PI * 0.42, 0.18, -0.45);
+  armRMesh.position.set(-3.2, -4.0, 5.0);
   armR.add(armRMesh);
   group.add(armR);
 
-  // Left Arm (Supporting Barrel / Handguard)
+  // Left Arm (Supporting Foregrip across chest)
   const armL = new THREE.Group();
-  armL.position.set(-11, 28, 0);
+  armL.position.set(-11, 29, 0);
   const armLMesh = new THREE.Mesh(armGeo, armorMat);
-  armLMesh.rotation.set(Math.PI * 0.46, -0.22, 0.48);
-  armLMesh.position.set(3.2, -4.2, 5.5);
+  armLMesh.rotation.set(Math.PI * 0.48, -0.28, 0.50);
+  armLMesh.position.set(3.8, -4.0, 5.5);
   armL.add(armLMesh);
   group.add(armL);
 

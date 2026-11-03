@@ -1,49 +1,36 @@
 import * as THREE from 'three';
 import { WeaponType } from '@shared/types.js';
-import { getWeaponSkin, getNeonSkin } from '@shared/skins.js';
+import { getWeaponSkin, getNeonSkin, PlayerCosmetics } from '@shared/skins.js';
 import { profileManager } from '../settings/profileManager.js';
 
 export function create3DWeaponMesh(weaponId: WeaponType, weaponSkinId?: string, neonSkinId?: string): THREE.Group {
   const wepSkin = getWeaponSkin(weaponSkinId);
   const neonSkin = getNeonSkin(neonSkinId);
   const hasCustomWepSkin = Boolean(weaponSkinId && weaponSkinId !== 'wep_default');
-  const hasCustomNeonSkin = Boolean(neonSkinId && neonSkinId !== 'neon_cyan');
   const group = new THREE.Group();
 
   const darkMetal = new THREE.MeshStandardMaterial({
     color: hasCustomWepSkin ? new THREE.Color(wepSkin.bodyHex) : 0x1e293b,
-    roughness: hasCustomWepSkin ? Math.max(0.22, wepSkin.roughness) : 0.28,
-    metalness: hasCustomWepSkin ? Math.min(0.52, wepSkin.metalness) : 0.45,
+    roughness: hasCustomWepSkin ? Math.max(0.18, wepSkin.roughness) : 0.26,
+    metalness: hasCustomWepSkin ? Math.min(0.48, wepSkin.metalness) : 0.45,
     envMapIntensity: 2.2
   });
   const gunMetal = new THREE.MeshStandardMaterial({
     color: hasCustomWepSkin ? new THREE.Color(wepSkin.barrelHex) : 0x334155,
-    roughness: hasCustomWepSkin ? Math.max(0.2, wepSkin.roughness) : 0.25,
-    metalness: hasCustomWepSkin ? Math.min(0.55, wepSkin.metalness) : 0.5,
+    roughness: hasCustomWepSkin ? Math.max(0.16, wepSkin.roughness) : 0.24,
+    metalness: hasCustomWepSkin ? Math.min(0.50, wepSkin.metalness) : 0.48,
     envMapIntensity: 2.5
   });
   const gripMat = new THREE.MeshStandardMaterial({
     color: hasCustomWepSkin ? new THREE.Color(wepSkin.gripHex) : 0x0f172a,
-    roughness: 0.55,
-    metalness: 0.45,
+    roughness: 0.50,
+    metalness: 0.40,
     envMapIntensity: 1.2
   });
 
-  let neonColor = 0x38bdf8;
-  if (weaponId === 'shotgun') neonColor = 0xf59e0b;
-  if (weaponId === 'thompson') neonColor = 0xa855f7;
-  if (weaponId === 'raygun') neonColor = 0x22c55e;
-  if (weaponId === 'm1911') neonColor = 0xfbbf24;
-  if (weaponId === 'sniper') neonColor = 0xe879f9;
-  if (weaponId === 'minigun') neonColor = 0xfacc15;
-  if (weaponId === 'rpg') neonColor = 0xef4444;
-  if (weaponId === 'flamethrower') neonColor = 0xf97316;
-  if (weaponId === 'crossbow') neonColor = 0xc084fc;
-  if (weaponId === 'gauss') neonColor = 0x06b6d4;
-
-  // Boosted HDR color (> 1.0) so UnrealBloomPass creates a rich neon glow around weapon rails & cores!
-  const chosenNeonHex = hasCustomNeonSkin ? neonSkin.colorHex : hasCustomWepSkin ? wepSkin.accentHex : neonColor;
-  const hdrNeon = new THREE.Color(chosenNeonHex).multiplyScalar(1.95);
+  // Equipped Neon Skin color for glowing energy rails, cores & optics!
+  const chosenNeonHex = neonSkin?.colorHex || (hasCustomWepSkin ? wepSkin.accentHex : '#38bdf8');
+  const hdrNeon = new THREE.Color(chosenNeonHex).multiplyScalar(2.4);
   const neonMat = new THREE.MeshBasicMaterial({ color: hdrNeon });
 
   if (weaponId === 'm16') {
@@ -68,15 +55,25 @@ export function create3DWeaponMesh(weaponId: WeaponType, weaponSkinId?: string, 
     railR.position.x = 1.12;
     group.add(railL, railR);
 
-    // Holographic Optic Sight
+    // Glowing Neon Top Rail (Prominently visible in First-Person View!)
+    const topNeonRail = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.35, 13.5), neonMat);
+    topNeonRail.position.set(0, 1.6, 0);
+    group.add(topNeonRail);
+
+    // Holographic Optic Sight with Neon Reticle
     const scopeFrame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.4, 3.2), darkMetal);
     scopeFrame.position.set(0, 2.1, -1);
     const holoGlass = new THREE.Mesh(
       new THREE.PlaneGeometry(1.1, 0.9),
-      new THREE.MeshBasicMaterial({ color: neonColor, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
+      new THREE.MeshBasicMaterial({ color: hdrNeon, transparent: true, opacity: 0.65, side: THREE.DoubleSide })
     );
     holoGlass.position.set(0, 2.2, -2.5);
-    group.add(scopeFrame, holoGlass);
+    const holoReticle = new THREE.Mesh(
+      new THREE.RingGeometry(0.12, 0.24, 12),
+      new THREE.MeshBasicMaterial({ color: hdrNeon, side: THREE.DoubleSide })
+    );
+    holoReticle.position.set(0, 2.2, -2.48);
+    group.add(scopeFrame, holoGlass, holoReticle);
 
     // Magazine
     const mag = new THREE.Mesh(new THREE.BoxGeometry(1.4, 4.5, 2.4), gripMat);
@@ -251,7 +248,7 @@ export function create3DWeaponMesh(weaponId: WeaponType, weaponSkinId?: string, 
     grip.rotation.x = 0.25;
     const laser = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 7), neonMat);
     laser.position.set(0, -0.6, -2.5);
-    group.add(slide, grip, laser);
+    const topSlideStripe = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.25, 7.5), neonMat); topSlideStripe.position.set(0, 1.62, -2); group.add(slide, grip, laser, topSlideStripe);
   }
 
   return group;
@@ -297,6 +294,14 @@ export class DoomWeaponRenderer {
     this.muzzleLight.position.set(0, 1, -16);
     this.weaponGroup.add(this.muzzleLight);
 
+    // Dedicated First-Person Weapon Lighting (Reveals full PBR skin colors in all map areas)
+    const wepDirLight = new THREE.DirectionalLight(0xffffff, 2.5);
+    wepDirLight.position.set(-2, 5, 8);
+    this.weaponGroup.add(wepDirLight);
+
+    const wepAmbLight = new THREE.AmbientLight(0xffffff, 1.4);
+    this.weaponGroup.add(wepAmbLight);
+
     if (camera) {
       camera.add(this.weaponGroup);
     }
@@ -332,6 +337,10 @@ export class DoomWeaponRenderer {
   public triggerShoot(): void {
     this.recoilOffset = 1.0;
     this.muzzleFlashTimer = 55;
+    const neonDef = getNeonSkin(profileManager.get().cosmetics.neonSkinId);
+    const neonCol = new THREE.Color(neonDef.colorHex || '#38bdf8');
+    (this.muzzleMesh.material as THREE.MeshBasicMaterial).color.copy(neonCol);
+    this.muzzleLight.color.copy(neonCol);
   }
 
   public triggerReload(): void {
@@ -343,14 +352,19 @@ export class DoomWeaponRenderer {
     this.isHitmarkerKill = isKill;
   }
 
-  public update(dtMs: number, isMoving: boolean, weaponId: WeaponType, reloadProgress: number): void {
-    // Rebuild 3D weapon model if weapon changed
-    if (this.currentWeaponId !== weaponId || this.currentSkinKey !== `${profileManager.get().cosmetics.weaponSkinId}|${profileManager.get().cosmetics.neonSkinId}`) {
-      this.currentSkinKey = `${profileManager.get().cosmetics.weaponSkinId}|${profileManager.get().cosmetics.neonSkinId}`;
+  public update(dtMs: number, isMoving: boolean, weaponId: WeaponType, reloadProgress: number, cosmeticsOverride?: PlayerCosmetics): void {
+    const cos = cosmeticsOverride || profileManager.get().cosmetics;
+    const wepSkinId = cos.weaponSkinId || 'wep_default';
+    const neonSkinId = cos.neonSkinId || 'neon_cyan';
+    const skinKey = `${wepSkinId}|${neonSkinId}`;
+
+    // Rebuild 3D weapon model if weapon or skin changed
+    if (this.currentWeaponId !== weaponId || this.currentSkinKey !== skinKey) {
+      this.currentSkinKey = skinKey;
       if (this.currentModel) {
         this.weaponGroup.remove(this.currentModel);
       }
-      this.currentModel = create3DWeaponMesh(weaponId, profileManager.get().cosmetics.weaponSkinId, profileManager.get().cosmetics.neonSkinId);
+      this.currentModel = create3DWeaponMesh(weaponId, wepSkinId, neonSkinId);
       this.weaponGroup.add(this.currentModel);
       this.currentWeaponId = weaponId;
     }
@@ -427,7 +441,7 @@ export class DoomWeaponRenderer {
     this.strokeCrosshairLines(ctx, cx, cy, spreadGap, len);
 
     // Inner glowing cyan crosshair
-    ctx.strokeStyle = '#38bdf8';
+    const neonCol = getNeonSkin(profileManager.get().cosmetics.neonSkinId).colorHex || '#38bdf8'; ctx.strokeStyle = neonCol;
     ctx.lineWidth = 2;
     this.strokeCrosshairLines(ctx, cx, cy, spreadGap, len);
 
