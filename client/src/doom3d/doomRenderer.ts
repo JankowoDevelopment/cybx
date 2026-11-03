@@ -71,6 +71,9 @@ export class Doom3DRenderer {
   private predictedY: number = 0;
   private predictedVz: number = 0;
   private isClientGrounded: boolean = true;
+  private baseFov: number = 75;
+  private clientBhopStreak: number = 0;
+  private clientLastLandedTime: number = 0;
   private hasInitializedPos: boolean = false;
   private headBobTimer: number = 0;
   private cameraShake: number = 0;
@@ -312,6 +315,7 @@ export class Doom3DRenderer {
 
   private applyGraphicsSettings(): void {
     const s = settingsManager.get();
+    this.baseFov = s.fov || 75;
 
     if (this.camera.fov !== s.fov) {
       this.camera.fov = s.fov;
@@ -971,6 +975,13 @@ export class Doom3DRenderer {
 
       if (e.code === 'Space') {
         if (this.isClientGrounded && this.latestSnapshot?.roundState === 'active') {
+          const now = performance.now();
+          const landedAgo = now - this.clientLastLandedTime;
+          if (landedAgo <= SERVER_CONFIG.BHOP_WINDOW_MS && this.clientBhopStreak > 0) {
+            this.clientBhopStreak = Math.min(8, this.clientBhopStreak + 1);
+          } else {
+            this.clientBhopStreak = 1;
+          }
           this.predictedVz = SERVER_CONFIG.JUMP_IMPULSE;
           this.isClientGrounded = false;
           networkManager.send({ type: 'jump' });
@@ -1371,6 +1382,25 @@ export class Doom3DRenderer {
         speed = SERVER_CONFIG.PLAYER_DASH_SPEED;
       }
 
+      // Synchronize Bunnyhop speed on client so prediction matches server 1:1 without teleports!
+      const activeBhopStreak = Math.max(localPlayer.bhopStreak || 0, this.clientBhopStreak);
+      if (activeBhopStreak > 0) {
+        let stepBhopBonus = SERVER_CONFIG.BHOP_SPEED_BONUS_PCT;
+        for (const cardId of localPlayer.cards || []) {
+          const card = ROUNDS_CARDS.find((c) => c.id === cardId);
+          if (card?.stats.bhopMultiplierPct) stepBhopBonus += 10;
+        }
+        speed *= 1 + (activeBhopStreak * stepBhopBonus) / 100;
+      }
+
+      // Dynamic Speed-Based FOV (surf / Quake speed sensation)
+      const speedRatio = Math.max(0, Math.min(1.4, (speed - SERVER_CONFIG.PLAYER_BASE_SPEED) / (SERVER_CONFIG.PLAYER_DASH_SPEED - SERVER_CONFIG.PLAYER_BASE_SPEED)));
+      const targetFov = this.baseFov + speedRatio * 15;
+      if (Math.abs(this.camera.fov - targetFov) > 0.05) {
+        this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dtSec * 10);
+        this.camera.updateProjectionMatrix();
+      }
+
       if (!localPlayer.downed && !localPlayer.isDead && snapshot?.roundState === 'active') {
         const deltaX = moveX * speed * dtSec;
         const deltaY = moveY * speed * dtSec;
@@ -1389,12 +1419,13 @@ export class Doom3DRenderer {
         const errZ = localPlayer.y - this.predictedZ;
         const distSq = errX * errX + errZ * errZ;
 
-        if (distSq > 100 * 100) {
+        if (distSq > 150 * 150) {
+          // Hard teleport only on massive desync or respawn
           this.predictedX = localPlayer.x;
           this.predictedZ = localPlayer.y;
-        } else if (!isMoving && distSq > 0.04) {
-          // Instant acceleration: only reconcile tiny drift when stationary, preventing backward pull when starting!
-          const blend = Math.min(1, dtSec * 25);
+        } else {
+          // Continuous smooth reconciliation with server position (smooth surf / Quake bhop)
+          const blend = isMoving ? Math.min(1, dtSec * 8) : Math.min(1, dtSec * 22);
           this.predictedX += errX * blend;
           this.predictedZ += errZ * blend;
         }
@@ -1451,10 +1482,14 @@ export class Doom3DRenderer {
               this.predictedY = floorZ;
               this.predictedVz = 0;
               this.isClientGrounded = true;
+              this.clientLastLandedTime = performance.now();
             }
             this.predictedY += (serverZ - this.predictedY) * Math.min(1, dtSec * 6);
           } else {
             this.predictedY += (floorZ - this.predictedY) * Math.min(1, dtSec * 25);
+            if (performance.now() - this.clientLastLandedTime > 160) {
+              this.clientBhopStreak = 0;
+            }
           }
         }
 
