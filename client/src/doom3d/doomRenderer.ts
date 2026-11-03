@@ -173,9 +173,9 @@ export class Doom3DRenderer {
 
     this.bloomPass = new UnrealBloomPass(
       new THREE.Vector2(Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2)),
-      0.30, // strength (clean subtle cyber glow, no blinding blowout)
-      0.38, // radius
-      0.86  // threshold (prevents surfaces and reflections from blooming)
+      0.28, // strength (crisp cyber glow)
+      0.35, // radius
+      1.20  // threshold (CRITICAL: higher than 1.0 ensures standard reflections & specular highlights NEVER bloom into blinding glare)
     );
     this.composer.addPass(this.bloomPass);
     this.composer.addPass(new OutputPass());
@@ -342,7 +342,7 @@ export class Doom3DRenderer {
     hemiLight.position.set(mapW / 2, 1500, mapH / 2);
     this.scene.add(hemiLight);
 
-    const sunLight = new THREE.DirectionalLight(0xe0f2fe, 1.65);
+    const sunLight = new THREE.DirectionalLight(0xe0f2fe, 1.25);
     this.sunLight = sunLight;
     sunLight.position.set(mapW * 0.3, 1800, mapH * 0.25);
     sunLight.target.position.set(mapW / 2, 0, mapH / 2);
@@ -361,7 +361,7 @@ export class Doom3DRenderer {
     this.scene.add(sunLight.target);
 
     // Tactical Flashlight on local player camera
-    const playerLight = new THREE.PointLight(0xffffff, 2.2, 650);
+    const playerLight = new THREE.PointLight(0xe0f2fe, 0.35, 420);
     playerLight.position.set(0, 4, 0);
     this.camera.add(playerLight);
     this.scene.add(this.camera);
@@ -412,15 +412,17 @@ export class Doom3DRenderer {
     this.scene.add(new THREE.Points(starGeo, starMat));
 
     // Atmospheric Floating Neon Dust / Cyber-Embers across the arena
-    const emberCount = 300;
+    // Atmospheric Floating Neon Cyber-Motes with Starburst Effect
+    const emberCount = 380;
     const emberGeo = new THREE.BufferGeometry();
     const emberPos = new Float32Array(emberCount * 3);
     const emberCol = new Float32Array(emberCount * 3);
     const palette = [
-      new THREE.Color(0x38bdf8).multiplyScalar(0.85),
-      new THREE.Color(0xec4899).multiplyScalar(0.85),
-      new THREE.Color(0xfbbf24).multiplyScalar(0.85),
-      new THREE.Color(0xa855f7).multiplyScalar(0.85)
+      new THREE.Color(0x38bdf8).multiplyScalar(1.2),
+      new THREE.Color(0xec4899).multiplyScalar(1.2),
+      new THREE.Color(0xfbbf24).multiplyScalar(1.2),
+      new THREE.Color(0xa855f7).multiplyScalar(1.2),
+      new THREE.Color(0x22c55e).multiplyScalar(1.2)
     ];
     for (let i = 0; i < emberCount; i++) {
       emberPos[i * 3] = 200 + Math.random() * (mapW - 400);
@@ -433,11 +435,36 @@ export class Doom3DRenderer {
     }
     emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
     emberGeo.setAttribute('color', new THREE.BufferAttribute(emberCol, 3));
+
+    // 4-Point Diamond Starburst Texture
+    const pCanvas = document.createElement('canvas');
+    pCanvas.width = 64;
+    pCanvas.height = 64;
+    const pCtx = pCanvas.getContext('2d')!;
+    const pGrad = pCtx.createRadialGradient(32, 32, 0, 32, 32, 28);
+    pGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    pGrad.addColorStop(0.35, 'rgba(255, 255, 255, 0.85)');
+    pGrad.addColorStop(0.7, 'rgba(56, 189, 248, 0.45)');
+    pGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    pCtx.fillStyle = pGrad;
+    pCtx.fillRect(0, 0, 64, 64);
+
+    // Crosshair star spikes
+    pCtx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+    pCtx.lineWidth = 2.2;
+    pCtx.beginPath();
+    pCtx.moveTo(32, 6); pCtx.lineTo(32, 58);
+    pCtx.moveTo(6, 32); pCtx.lineTo(58, 32);
+    pCtx.stroke();
+
+    const pTex = new THREE.CanvasTexture(pCanvas);
+
     const emberMat = new THREE.PointsMaterial({
-      size: 2.2,
+      size: 4.8, // minimally increased size
+      map: pTex,
       vertexColors: true,
       transparent: true,
-      opacity: 0.28,
+      opacity: 0.58,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     });
@@ -497,7 +524,7 @@ export class Doom3DRenderer {
       bumpScale: 2.0,
       roughness: 0.18,
       metalness: 0.88,
-      envMapIntensity: 1.5
+      envMapIntensity: 0.85 // minimally decreased wall reflections
     });
     const perimeterMat = new THREE.MeshStandardMaterial({
       map: this.textures.wallPerimeter,
@@ -505,7 +532,7 @@ export class Doom3DRenderer {
       bumpScale: 1.8,
       roughness: 0.16,
       metalness: 0.90,
-      envMapIntensity: 1.5
+      envMapIntensity: 0.85
     });
 
     // Balanced Neon Colors (Vibrant colors without blinding glare)
@@ -1395,7 +1422,9 @@ export class Doom3DRenderer {
     // 6. Render 3D Scene (with Post-Processing UnrealBloomPass when enabled)
     if (this.atmosphereParticles) {
       this.atmosphereParticles.rotation.y = Math.sin(timestamp * 0.00015) * 0.08;
-      this.atmosphereParticles.position.y = Math.sin(timestamp * 0.0012) * 4;
+      this.atmosphereParticles.position.y = Math.sin(timestamp * 0.0012) * 5;
+      const mat = this.atmosphereParticles.material as THREE.PointsMaterial;
+      mat.size = 4.6 + Math.sin(timestamp * 0.0022) * 0.8; // sparkling twinkle animation
     }
 
     if (this.composer && settingsManager.get().graphicsQuality !== 'low') {
