@@ -1,6 +1,7 @@
 import { PlayerState, GameSnapshot } from '@shared/types.js';
 import { WEAPONS } from '@shared/weapons.js';
 import { ROUNDS_CARDS } from '@shared/cards.js';
+import { GAME_VERSION } from '@shared/constants.js';
 import { soundSystem } from '../audio/soundSystem.js';
 import { settingsManager } from '../settings/settingsManager.js';
 import { profileManager } from '../settings/profileManager.js';
@@ -143,7 +144,10 @@ export class DoomHud {
 
       <!-- Bottom Left: Cyber Mode Badge -->
       <div id="hud-mode" style="position: absolute; bottom: 24px; left: 26px; background: rgba(15,23,42,0.65); backdrop-filter: blur(8px); border-left: 4px solid #ef4444; padding: 8px 16px; border-radius: 6px;">
-        <div style="font-size: 10px; color: #94a3b8; font-weight: 700; letter-spacing: 2px;">CYBER ARENA</div>
+        <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
+          <div style="font-size: 10px; color: #94a3b8; font-weight: 700; letter-spacing: 2px;">CYBER ARENA</div>
+          <div style="font-size: 10px; color: #64748b; font-weight: 800; letter-spacing: 1px;">v${GAME_VERSION}</div>
+        </div>
         <div style="font-size: 24px; font-weight: 900; color: #f8fafc; letter-spacing: 2px;">ROUNDS 3D</div>
       </div>
 

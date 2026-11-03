@@ -50,3 +50,7 @@
 
 
 
+
+
+## 5. Version Bumping (Patch Versioning)
+* Every new patch / deploy MUST bump the patch version in `shared/constants.ts` (`GAME_VERSION = 'X.X.Y'`) and `package.json` (`"version": "X.X.Y"`).

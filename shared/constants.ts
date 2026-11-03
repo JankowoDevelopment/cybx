@@ -1,3 +1,5 @@
+export const GAME_VERSION = '1.4.1';
+
 export const SERVER_CONFIG = {
   TICK_RATE: 40, // 40 updates per second (25ms)
   TICK_INTERVAL_MS: 1000 / 40,

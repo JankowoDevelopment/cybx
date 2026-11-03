@@ -7,6 +7,7 @@ import { profileManager } from '../settings/profileManager.js';
 import { createCyberCharacterModel, CyberCharacter3D } from './characterModel.js';
 import { LobbyPlayerInfo } from '@shared/types.js';
 import { getNeonSkin } from '@shared/skins.js';
+import { GAME_VERSION } from '@shared/constants.js';
 import { soundSystem } from '../audio/soundSystem.js';
 
 interface StageSlot3D {
@@ -147,12 +148,12 @@ export class DoomLobby {
           <h1 style="font-family: 'Orbitron', sans-serif; font-size: 34px; font-weight: 900; letter-spacing: 3px; margin: 0; line-height: 1;">
             <span style="color: #38bdf8; text-shadow: 0 0 25px rgba(56,189,248,0.9);">CYBX</span>
             <span style="color: #ef4444; text-shadow: 0 0 30px rgba(239,68,68,0.95);">// FREE FOR ALL</span>
-            <span style="font-size: 12px; color: #64748b; font-weight: 800; letter-spacing: 1.5px; margin-left: 8px;">v1.4.0</span>
+            <span style="font-size: 12px; color: #64748b; font-weight: 800; letter-spacing: 1.5px; margin-left: 8px;">v${GAME_VERSION}</span>
           </h1>
         </div>
         <div style="font-family: 'Orbitron', sans-serif; font-size: 11px; color: #38bdf8; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; display: flex; align-items: center; gap: 8px;">
           <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 10px #22c55e;"></span>
-          <span>CYBER ARENA 3D // V1.4.0 ONLINE</span>
+          <span>CYBER ARENA 3D // V${GAME_VERSION} ONLINE</span>
           <span style="color: #64748b;">&bull;</span>
           <span style="color: #f59e0b;">KLIKNIJ GRACZA ABY GO WYRZUCIĆ (HOST)</span>
         </div>
