@@ -476,10 +476,10 @@ export class Doom3DRenderer {
         const floorMat = new THREE.MeshStandardMaterial({
           map: floorTex,
           bumpMap: floorTex,
-          bumpScale: 1.0,
-          roughness: 0.58,
-          metalness: 0.25,
-          envMapIntensity: 0.35
+          bumpScale: 1.4,
+          roughness: 0.11,
+          metalness: 0.90,
+          envMapIntensity: 1.5
         });
 
         const floorMesh = new THREE.Mesh(floorGeo, floorMat);
@@ -494,18 +494,18 @@ export class Doom3DRenderer {
     const brickMat = new THREE.MeshStandardMaterial({
       map: this.textures.wallBrick,
       bumpMap: this.textures.wallBrick,
-      bumpScale: 1.4,
-      roughness: 0.52,
-      metalness: 0.30,
-      envMapIntensity: 0.40
+      bumpScale: 2.0,
+      roughness: 0.18,
+      metalness: 0.88,
+      envMapIntensity: 1.5
     });
     const perimeterMat = new THREE.MeshStandardMaterial({
       map: this.textures.wallPerimeter,
       bumpMap: this.textures.wallPerimeter,
-      bumpScale: 1.2,
-      roughness: 0.50,
-      metalness: 0.32,
-      envMapIntensity: 0.40
+      bumpScale: 1.8,
+      roughness: 0.16,
+      metalness: 0.90,
+      envMapIntensity: 1.5
     });
 
     // Balanced Neon Colors (Vibrant colors without blinding glare)

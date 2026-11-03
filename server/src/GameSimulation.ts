@@ -1083,8 +1083,8 @@ export class GameSimulation {
 
       this.bullets.push({
         id: `bullet_${this.nextId++}`,
-        x: player.x + Math.cos(player.angle) * 20,
-        y: player.y + Math.sin(player.angle) * 20,
+        x: player.x + Math.cos(player.angle) * 4,
+        y: player.y + Math.sin(player.angle) * 4,
         vx,
         vy,
         shooterId: player.id,
