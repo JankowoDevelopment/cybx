@@ -12,10 +12,16 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// 301 Permanent Redirect: cybx.pl -> www.cybx.pl
+// 301 Permanent Redirect: cybx.pl & deadlock-zombies-game.fly.dev -> www.cybx.pl
 app.use((req, res, next) => {
+  if (req.path === '/api/health') return next();
   const host = (req.headers.host || '').toLowerCase();
-  if (host === 'cybx.pl' || host.startsWith('cybx.pl:')) {
+  if (
+    host === 'cybx.pl' ||
+    host.startsWith('cybx.pl:') ||
+    host === 'deadlock-zombies-game.fly.dev' ||
+    host.startsWith('deadlock-zombies-game.fly.dev:')
+  ) {
     return res.redirect(301, `https://www.cybx.pl${req.originalUrl}`);
   }
   next();
