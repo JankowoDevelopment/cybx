@@ -15,6 +15,9 @@ interface StageSlot3D {
   isHost: boolean;
   isLocal: boolean;
   pedestalGroup: THREE.Group;
+  holoRingA: THREE.Mesh;
+  holoRingB: THREE.Mesh;
+  holoBeam: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshBasicMaterial>;
   charModel: CyberCharacter3D;
   labelEl: HTMLElement;
 }
@@ -39,6 +42,19 @@ export class DoomLobby {
   private isDestroyed: boolean = false;
   private unsubProfile?: () => void;
   private resizeHandler: () => void;
+
+  // Spectacular Cyber Reactor / Stargate 3D Elements
+  private stargateGroup!: THREE.Group;
+  private stargateOuterRing!: THREE.Mesh;
+  private stargateMidRing!: THREE.Mesh;
+  private stargateInnerRing!: THREE.Mesh;
+  private stargateCore!: THREE.Mesh;
+  private stargateSatellites: THREE.Mesh[] = [];
+  private vortexParticles!: THREE.Points;
+  private rimLightL!: THREE.PointLight;
+  private rimLightR!: THREE.PointLight;
+  private leftMonolithGlow!: THREE.Mesh;
+  private rightMonolithGlow!: THREE.Mesh;
 
   constructor() {
     this.settingsModal = new SettingsModal();
@@ -112,64 +128,72 @@ export class DoomLobby {
       width: 100vw;
       height: 100vh;
       overflow: hidden;
-      background: #03060c;
+      background: radial-gradient(circle at 50% 30%, #080d1e 0%, #03050c 100%);
       z-index: 50;
-      font-family: 'Chakra Petch', sans-serif;
+      font-family: 'Rajdhani', 'Chakra Petch', sans-serif;
       user-select: none;
     `;
 
     this.lobbyDiv.innerHTML = `
-      <!-- Fullscreen 3D Character Showcase Stage -->
+      <!-- Fullscreen 3D Character Showcase Stage & Quantum Reactor -->
       <div id="lobby-3d-stage" style="position: absolute; inset: 0; z-index: 1;"></div>
 
       <!-- 2D Overhead Player Nameplates & Host Kick Popover Layer -->
       <div id="lobby-3d-labels" style="position: absolute; inset: 0; pointer-events: none; z-index: 5;"></div>
 
-      <!-- TOP LEFT: Game Title & Mode Badge -->
-      <div style="position: absolute; top: 20px; left: 26px; z-index: 10; pointer-events: none;">
-        <h1 style="font-size: 32px; font-weight: 900; letter-spacing: 3px; color: #ef4444; margin: 0; text-shadow: 0 0 25px rgba(220,38,38,0.85);">
-          ARENA 1v1v1v1 3D
-        </h1>
-        <div style="font-size: 11px; color: #f59e0b; font-weight: 800; letter-spacing: 2px; text-transform: uppercase;">
-          Multiplayer PvP Cyber Shooter &bull;Kliknij na postać gracza aby go wyrzucić (Host)
+      <!-- TOP LEFT: High-Tech Cyberpunk Game Title -->
+      <div style="position: absolute; top: 22px; left: 28px; z-index: 10; pointer-events: none;">
+        <div style="display: flex; align-items: baseline; gap: 10px;">
+          <h1 style="font-family: 'Orbitron', sans-serif; font-size: 34px; font-weight: 900; letter-spacing: 3px; margin: 0; line-height: 1;">
+            <span style="color: #38bdf8; text-shadow: 0 0 25px rgba(56,189,248,0.9);">CYBX</span>
+            <span style="color: #ef4444; text-shadow: 0 0 30px rgba(239,68,68,0.95);">// FREE FOR ALL</span>
+          </h1>
+        </div>
+        <div style="font-family: 'Orbitron', sans-serif; font-size: 11px; color: #38bdf8; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; display: flex; align-items: center; gap: 8px;">
+          <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 10px #22c55e;"></span>
+          <span>CYBER ARENA 3D // V2.0 ONLINE</span>
+          <span style="color: #64748b;">&bull;</span>
+          <span style="color: #f59e0b;">KLIKNIJ GRACZA ABY GO WYRZUCIĆ (HOST)</span>
         </div>
       </div>
 
-      <!-- TOP RIGHT: Persistent Nickname Input (Cookie Saved) + Skins & Cases + Settings -->
-      <div style="position: absolute; top: 18px; right: 24px; z-index: 15; display: flex; align-items: center; gap: 10px; background: rgba(9, 13, 22, 0.88); backdrop-filter: blur(12px); border: 1px solid rgba(56, 189, 248, 0.45); border-radius: 12px; padding: 8px 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.65);">
-        <div style="display: flex; align-items: center; gap: 7px;">
-          <span style="font-size: 11px; font-weight: 900; color: #94a3b8; letter-spacing: 1px;">TWÓJ NICK:</span>
+      <!-- TOP RIGHT: Nickname Panel + Skin Crate & Settings Buttons -->
+      <div style="position: absolute; top: 20px; right: 26px; z-index: 15; display: flex; align-items: center; gap: 12px; background: rgba(8, 12, 22, 0.88); backdrop-filter: blur(14px); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 12px; padding: 8px 16px; box-shadow: 0 10px 35px rgba(0,0,0,0.7), 0 0 20px rgba(56, 189, 248, 0.15); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-family: 'Orbitron', sans-serif; font-size: 10px; font-weight: 900; color: #94a3b8; letter-spacing: 1.5px;">NICK:</span>
           <input type="text" id="top-input-nickname" value="${prof.nickname}" maxlength="15"
-            style="width: 145px; padding: 6px 10px; border-radius: 7px; background: #050811; border: 1px solid #38bdf8; color: #f8fafc; font-family: inherit; font-size: 14px; font-weight: 800; outline: none;" />
+            style="width: 145px; padding: 7px 12px; border-radius: 6px; background: #040711; border: 1px solid #38bdf8; color: #38bdf8; font-family: 'Orbitron', sans-serif; font-size: 13px; font-weight: 800; outline: none; box-shadow: inset 0 0 10px rgba(56, 189, 248, 0.2);" />
         </div>
 
-        <div id="top-points-badge" style="font-size: 12px; font-weight: 800; color: rgba(251, 191, 36, 0.65); padding: 5px 9px; background: rgba(251, 191, 36, 0.08); border-radius: 7px; letter-spacing: 0.5px;" title="+100 PKT za każdą wygraną rundę">
+        <div id="top-points-badge" style="font-family: 'Orbitron', sans-serif; font-size: 12px; font-weight: 900; color: #fbbf24; padding: 6px 12px; background: rgba(251, 191, 36, 0.12); border: 1px solid rgba(251, 191, 36, 0.35); border-radius: 6px; letter-spacing: 1px;" title="+100 PKT za każdą wygraną rundę">
           💎 ${prof.points} PKT
         </div>
 
-        <button id="btn-top-skins" style="padding: 8px 14px; background: linear-gradient(135deg, #d97706, #f59e0b); color: #090d16; border: none; border-radius: 8px; font-family: inherit; font-weight: 900; font-size: 12px; cursor: pointer; letter-spacing: 1px; box-shadow: 0 0 15px rgba(245, 158, 11, 0.4);">
+        <button id="btn-top-skins" class="cyber-btn cyber-btn-gold" style="padding: 10px 16px; font-size: 12px;">
           📦 SKRZYNKI & SKINY
         </button>
 
-        <button id="btn-top-settings" style="padding: 8px 14px; background: rgba(56, 189, 248, 0.16); border: 1px solid #38bdf8; color: #38bdf8; border-radius: 8px; font-family: inherit; font-weight: 900; font-size: 12px; cursor: pointer; letter-spacing: 1px;">
+        <button id="btn-top-settings" class="cyber-btn cyber-btn-stealth" style="padding: 10px 16px; font-size: 12px;">
           ⚙️ USTAWIENIA
         </button>
       </div>
 
-      <!-- BOTTOM CONTROL DOCK: Create / Join / Start Room (Leaves Center Clear for 3D Characters!) -->
-      <div style="position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 12; width: 720px; max-width: 94vw; background: rgba(12, 15, 24, 0.9); backdrop-filter: blur(14px); border: 2px solid rgba(220, 38, 38, 0.75); border-radius: 16px; padding: 18px 26px; box-shadow: 0 15px 45px rgba(0, 0, 0, 0.85), 0 0 30px rgba(220, 38, 38, 0.25);">
+      <!-- BOTTOM CONTROL DOCK: Modern Cyberpunk Command Console -->
+      <div style="position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 12; width: 750px; max-width: 94vw; background: rgba(7, 10, 18, 0.92); backdrop-filter: blur(16px); border: 2px solid rgba(239, 68, 68, 0.65); border-radius: 16px; padding: 20px 28px; box-shadow: 0 18px 55px rgba(0, 0, 0, 0.9), 0 0 35px rgba(239, 68, 68, 0.25); clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);">
         <!-- Pre-Join Controls -->
-        <div id="lobby-prejoin" style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
-          <button id="btn-create-room" style="flex: 1.2; min-width: 220px; padding: 15px 20px; background: #dc2626; color: #fff; border: none; border-radius: 10px; font-family: inherit; font-weight: 900; font-size: 15px; cursor: pointer; letter-spacing: 1.5px; box-shadow: 0 4px 20px rgba(220,38,38,0.45);">
+        <div id="lobby-prejoin" style="display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap;">
+          <button id="btn-create-room" class="cyber-btn cyber-btn-red" style="flex: 1.3; min-width: 230px; padding: 16px 24px; font-size: 15px;">
             ⚔️ STWÓRZ NOWY POKÓJ 3D
           </button>
 
-          <div style="font-size: 11px; color: #64748b; font-weight: 800;">LUB</div>
+          <div style="font-family: 'Orbitron', sans-serif; font-size: 12px; color: #64748b; font-weight: 900; letter-spacing: 2px;">
+            LUB
+          </div>
 
-          <div style="flex: 1.3; min-width: 240px; display: flex; gap: 8px;">
+          <div style="flex: 1.4; min-width: 250px; display: flex; gap: 10px;">
             <input type="text" id="input-room-code" placeholder="KOD POKOJU" maxlength="6"
-              style="flex: 1; padding: 12px; border-radius: 10px; background: #060911; border: 1px solid #334155; color: #fbbf24; font-family: inherit; font-size: 17px; font-weight: 900; text-transform: uppercase; text-align: center; outline: none; letter-spacing: 3px;" />
-            <button id="btn-join-room" style="padding: 12px 22px; background: #0284c7; color: #fff; border: none; border-radius: 10px; font-family: inherit; font-weight: 900; font-size: 14px; cursor: pointer; letter-spacing: 1px;">
+              style="flex: 1; padding: 13px; border-radius: 8px; background: #03050c; border: 1px solid #38bdf8; color: #fbbf24; font-family: 'Orbitron', sans-serif; font-size: 18px; font-weight: 900; text-transform: uppercase; text-align: center; outline: none; letter-spacing: 4px; box-shadow: inset 0 0 14px rgba(56, 189, 248, 0.2);" />
+            <button id="btn-join-room" class="cyber-btn cyber-btn-cyan" style="padding: 13px 24px; font-size: 14px;">
               DOŁĄCZ
             </button>
           </div>
@@ -177,23 +201,23 @@ export class DoomLobby {
 
         <!-- In-Room Controls -->
         <div id="lobby-room" style="display: none;">
-          <div style="display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap;">
-            <div style="background: #060911; padding: 10px 18px; border-radius: 10px; border: 2px dashed #f59e0b; display: flex; align-items: center; gap: 12px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap;">
+            <div style="background: #03060f; padding: 12px 22px; border-radius: 8px; border: 2px solid #f59e0b; display: flex; align-items: center; gap: 16px; box-shadow: 0 0 20px rgba(245, 158, 11, 0.25);">
               <div>
-                <div style="font-size: 10px; color: #94a3b8; font-weight: 800;">KOD POKOJU:</div>
-                <div id="display-room-code" style="font-size: 26px; font-weight: 900; color: #f59e0b; letter-spacing: 4px; line-height: 1.1;">----</div>
+                <div style="font-family: 'Orbitron', sans-serif; font-size: 10px; color: #94a3b8; font-weight: 900; letter-spacing: 1.5px;">KOD POKOJU:</div>
+                <div id="display-room-code" style="font-family: 'Orbitron', sans-serif; font-size: 28px; font-weight: 900; color: #f59e0b; letter-spacing: 5px; line-height: 1.1; text-shadow: 0 0 15px rgba(245, 158, 11, 0.8);">----</div>
               </div>
-              <div id="players-count-badge" style="font-size: 12px; font-weight: 800; color: #38bdf8; background: rgba(56,189,248,0.12); padding: 4px 10px; border-radius: 6px;">
+              <div id="players-count-badge" style="font-family: 'Orbitron', sans-serif; font-size: 12px; font-weight: 900; color: #38bdf8; background: rgba(56,189,248,0.15); border: 1px solid rgba(56,189,248,0.4); padding: 6px 12px; border-radius: 6px; letter-spacing: 1px;">
                 1 / 4 GRACZY
               </div>
             </div>
 
-            <div style="flex: 1; min-width: 240px;">
-              <button id="btn-start-game" style="width: 100%; padding: 16px; background: #dc2626; color: #fff; border: none; border-radius: 10px; font-family: inherit; font-weight: 900; font-size: 17px; cursor: pointer; letter-spacing: 2px; box-shadow: 0 4px 25px rgba(220,38,38,0.5);">
+            <div style="flex: 1; min-width: 250px;">
+              <button id="btn-start-game" class="cyber-btn cyber-btn-boss" style="width: 100%; padding: 16px;">
                 WEJDŹ NA ARENĘ ⚔️
               </button>
-              <div id="host-wait-msg" style="display: none; text-align: center; font-size: 14px; font-weight: 800; color: #94a3b8;">
-                ⏳ Czekam aż stwórca gry uruchomi arenę...
+              <div id="host-wait-msg" style="display: none; text-align: center; font-family: 'Orbitron', sans-serif; font-size: 13px; font-weight: 800; color: #94a3b8; letter-spacing: 1px; padding: 10px;">
+                ⏳ CZEKAM AŻ STWÓRCA ROZPOCZNIE MECZ...
               </div>
             </div>
           </div>
@@ -271,25 +295,25 @@ export class DoomLobby {
 
   private init3DStage(): void {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x040711);
-    this.scene.fog = new THREE.FogExp2(0x040711, 0.0028);
+    this.scene.background = new THREE.Color(0x020409);
+    this.scene.fog = new THREE.FogExp2(0x020409, 0.0022);
 
-    this.camera = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 1, 1500);
-    this.camera.position.set(0, 42, 138);
+    this.camera = new THREE.PerspectiveCamera(46, window.innerWidth / window.innerHeight, 1, 1600);
+    this.camera.position.set(0, 42, 142);
     this.camera.lookAt(0, 26, 0);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 1.2;
     this.stageCanvasContainer.appendChild(this.renderer.domElement);
 
-    // Create Cyber PMREM Reflection Environment (enables metallic armor & weapon skin reflections!)
+    // Create Cyber PMREM Reflection Environment
     this.createCyberReflectionEnv();
 
     // Stage Lighting
-    const hemi = new THREE.HemisphereLight(0x38bdf8, 0x090d16, 1.4);
+    const hemi = new THREE.HemisphereLight(0x38bdf8, 0x050811, 1.5);
     this.scene.add(hemi);
 
     const frontLight = new THREE.DirectionalLight(0xe0f2fe, 1.9);
@@ -300,35 +324,164 @@ export class DoomLobby {
     keyLight.position.set(60, 140, 110);
     this.scene.add(keyLight);
 
-    const rimLightL = new THREE.PointLight(0x38bdf8, 4.2, 300);
-    rimLightL.position.set(-90, 60, -40);
-    this.scene.add(rimLightL);
+    this.rimLightL = new THREE.PointLight(0x38bdf8, 4.8, 350);
+    this.rimLightL.position.set(-90, 60, -40);
+    this.scene.add(this.rimLightL);
 
-    const rimLightR = new THREE.PointLight(0xec4899, 4.2, 300);
-    rimLightR.position.set(90, 60, -40);
-    this.scene.add(rimLightR);
+    this.rimLightR = new THREE.PointLight(0xec4899, 4.8, 350);
+    this.rimLightR.position.set(90, 60, -40);
+    this.scene.add(this.rimLightR);
 
-    // Cyber Grid Floor + Back Holo-Arch
+    // Cyber Grid Floor
     const floorMat = new THREE.MeshStandardMaterial({
-      color: 0x090f1d,
-      roughness: 0.18,
-      metalness: 0.88
+      color: 0x080c16,
+      roughness: 0.16,
+      metalness: 0.90
     });
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(600, 400), floorMat);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(700, 500), floorMat);
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = 0;
     this.scene.add(floor);
 
-    const grid = new THREE.GridHelper(420, 28, 0x38bdf8, 0x1e293b);
+    const grid = new THREE.GridHelper(500, 32, 0x0ea5e9, 0x1e293b);
     grid.position.y = 0.2;
     this.scene.add(grid);
 
-    const archRing = new THREE.Mesh(
-      new THREE.TorusGeometry(95, 1.2, 10, 48),
-      new THREE.MeshBasicMaterial({ color: 0x1e293b })
+    // --- SPECTACULAR QUANTUM STARGATE & REACTOR BACKDROP ---
+    this.stargateGroup = new THREE.Group();
+    this.stargateGroup.position.set(0, 38, -55);
+
+    // 1. Outer Tech Gear Ring with 8 Cyan Neon Nodes
+    this.stargateOuterRing = new THREE.Mesh(
+      new THREE.TorusGeometry(108, 1.8, 8, 48),
+      new THREE.MeshStandardMaterial({ color: 0x0284c7, metalness: 0.95, roughness: 0.12 })
     );
-    archRing.position.set(0, 35, -45);
-    this.scene.add(archRing);
+    this.stargateGroup.add(this.stargateOuterRing);
+
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const bracket = new THREE.Mesh(
+        new THREE.BoxGeometry(6, 14, 5),
+        new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
+      );
+      bracket.position.set(Math.cos(angle) * 108, Math.sin(angle) * 108, 0);
+      bracket.rotation.z = angle;
+      this.stargateOuterRing.add(bracket);
+    }
+
+    // 2. Mid Laser Gyro Ring (Hot Magenta Glow)
+    this.stargateMidRing = new THREE.Mesh(
+      new THREE.TorusGeometry(82, 1.4, 8, 36),
+      new THREE.MeshBasicMaterial({ color: 0xec4899, wireframe: true })
+    );
+    this.stargateMidRing.rotation.x = 0.45;
+    this.stargateGroup.add(this.stargateMidRing);
+
+    // 3. Inner Tumbling Ring (Golden Glow)
+    this.stargateInnerRing = new THREE.Mesh(
+      new THREE.TorusGeometry(58, 1.2, 8, 32),
+      new THREE.MeshBasicMaterial({ color: 0xf59e0b, wireframe: true })
+    );
+    this.stargateGroup.add(this.stargateInnerRing);
+
+    // 4. Central Floating Octahedral Plasma Core
+    const coreGeo = new THREE.OctahedronGeometry(18, 1);
+    this.stargateCore = new THREE.Mesh(
+      coreGeo,
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8, wireframe: true })
+    );
+    const innerCore = new THREE.Mesh(
+      new THREE.SphereGeometry(9, 14, 14),
+      new THREE.MeshBasicMaterial({ color: 0xffffff })
+    );
+    this.stargateCore.add(innerCore);
+    this.stargateGroup.add(this.stargateCore);
+
+    // 5. Orbiting Quantum Satellite Energy Crystals
+    for (let i = 0; i < 4; i++) {
+      const sat = new THREE.Mesh(
+        new THREE.OctahedronGeometry(4.5, 0),
+        new THREE.MeshBasicMaterial({ color: i % 2 === 0 ? 0x00f0ff : 0xff007f })
+      );
+      this.stargateSatellites.push(sat);
+      this.stargateGroup.add(sat);
+    }
+
+    this.scene.add(this.stargateGroup);
+
+    // --- FLANKING CYBER MONOLITHS (LEFT & RIGHT) ---
+    const monolithGeo = new THREE.BoxGeometry(10, 80, 12);
+    const monolithMat = new THREE.MeshStandardMaterial({ color: 0x070b14, metalness: 0.9, roughness: 0.2 });
+
+    const leftMonolith = new THREE.Mesh(monolithGeo, monolithMat);
+    leftMonolith.position.set(-125, 40, -35);
+    this.leftMonolithGlow = new THREE.Mesh(
+      new THREE.BoxGeometry(1.5, 76, 12.2),
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
+    );
+    this.leftMonolithGlow.position.x = 5.2;
+    leftMonolith.add(this.leftMonolithGlow);
+    this.scene.add(leftMonolith);
+
+    const rightMonolith = new THREE.Mesh(monolithGeo, monolithMat);
+    rightMonolith.position.set(125, 40, -35);
+    this.rightMonolithGlow = new THREE.Mesh(
+      new THREE.BoxGeometry(1.5, 76, 12.2),
+      new THREE.MeshBasicMaterial({ color: 0xec4899 })
+    );
+    this.rightMonolithGlow.position.x = -5.2;
+    rightMonolith.add(this.rightMonolithGlow);
+    this.scene.add(rightMonolith);
+
+    // --- SWIRLING CYBER VORTEX PARTICLES ---
+    const vCount = 650;
+    const vGeo = new THREE.BufferGeometry();
+    const vPos = new Float32Array(vCount * 3);
+    const vCol = new Float32Array(vCount * 3);
+    const vPalette = [
+      new THREE.Color(0x38bdf8).multiplyScalar(2.5),
+      new THREE.Color(0xec4899).multiplyScalar(2.5),
+      new THREE.Color(0xfbbf24).multiplyScalar(2.5),
+      new THREE.Color(0x22c55e).multiplyScalar(2.5)
+    ];
+    for (let i = 0; i < vCount; i++) {
+      const radius = 30 + Math.random() * 190;
+      const angle = Math.random() * Math.PI * 2;
+      vPos[i * 3] = Math.cos(angle) * radius;
+      vPos[i * 3 + 1] = 4 + Math.random() * 85;
+      vPos[i * 3 + 2] = -45 + Math.sin(angle) * (radius * 0.45);
+      const c = vPalette[i % vPalette.length];
+      vCol[i * 3] = c.r;
+      vCol[i * 3 + 1] = c.g;
+      vCol[i * 3 + 2] = c.b;
+    }
+    vGeo.setAttribute('position', new THREE.BufferAttribute(vPos, 3));
+    vGeo.setAttribute('color', new THREE.BufferAttribute(vCol, 3));
+
+    // Particle starburst texture
+    const pCanvas = document.createElement('canvas');
+    pCanvas.width = 32;
+    pCanvas.height = 32;
+    const pCtx = pCanvas.getContext('2d')!;
+    const grad = pCtx.createRadialGradient(16, 16, 0, 16, 16, 15);
+    grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    grad.addColorStop(0.4, 'rgba(255, 255, 255, 0.85)');
+    grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    pCtx.fillStyle = grad;
+    pCtx.fillRect(0, 0, 32, 32);
+    const pTex = new THREE.CanvasTexture(pCanvas);
+
+    const vMat = new THREE.PointsMaterial({
+      size: 4.8,
+      map: pTex,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.8,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    this.vortexParticles = new THREE.Points(vGeo, vMat);
+    this.scene.add(this.vortexParticles);
 
     // Click handler on 3D canvas for Raycasting player models (Host Kick!)
     this.renderer.domElement.addEventListener('click', (e) => this.onStageClick(e));
@@ -338,12 +491,47 @@ export class DoomLobby {
       if (this.isDestroyed) return;
       this.animFrameId = requestAnimationFrame(animate);
 
-      // Gentle idle animation & subtle heroic turntable sway on 3D characters
+      // 1. Rotate & Animate Quantum Stargate Rings
+      this.stargateOuterRing.rotation.z = t * 0.0004;
+      this.stargateMidRing.rotation.x = t * 0.0010;
+      this.stargateMidRing.rotation.y = t * 0.0007;
+      this.stargateInnerRing.rotation.y = -t * 0.0015;
+      this.stargateInnerRing.rotation.z = t * 0.0008;
+
+      // 2. Pulse Central Plasma Core
+      this.stargateCore.rotation.x = t * 0.0016;
+      this.stargateCore.rotation.y = t * 0.0022;
+      const coreScale = 1.0 + Math.sin(t * 0.004) * 0.16;
+      this.stargateCore.scale.set(coreScale, coreScale, coreScale);
+
+      // 3. Orbit Satellite Energy Nodes
+      for (let i = 0; i < this.stargateSatellites.length; i++) {
+        const sat = this.stargateSatellites[i];
+        const a = t * 0.0018 + i * (Math.PI / 2);
+        sat.position.set(Math.cos(a) * 34, Math.sin(a) * 34, Math.sin(a * 2) * 8);
+        sat.rotation.x += 0.02;
+        sat.rotation.y += 0.03;
+      }
+
+      // 4. Vortex Particle Swirl & Gentle Bob
+      this.vortexParticles.rotation.y = t * 0.0005;
+      this.vortexParticles.position.y = Math.sin(t * 0.0012) * 3;
+
+      // 5. Sweeping Dynamic Stage Spotlights
+      this.rimLightL.position.x = -90 + Math.sin(t * 0.0012) * 22;
+      this.rimLightR.position.x = 90 + Math.cos(t * 0.0012) * 22;
+
+      // 6. Character Idle Turntable Sway & Pedestal Hologram Rings Rotation
       for (let i = 0; i < this.stageSlots.length; i++) {
         const slot = this.stageSlots[i];
         const idleY = Math.sin(t * 0.002 + i) * 0.05;
         slot.charModel.group.rotation.y = -0.32 + idleY;
         slot.charModel.group.position.y = 4 + Math.sin(t * 0.003 + i) * 0.25;
+
+        // Spinning Pedestal Tech Rings
+        slot.holoRingA.rotation.z += 0.025;
+        slot.holoRingB.rotation.z -= 0.035;
+        slot.holoBeam.material.opacity = 0.12 + Math.sin(t * 0.004 + i) * 0.06;
       }
 
       this.renderer.render(this.scene, this.camera);
@@ -398,9 +586,6 @@ export class DoomLobby {
 
     const prof = profileManager.get();
 
-    // Determine list of players to display on stage:
-    // If not in a room yet -> show local player in the center!
-    // If in a room -> show local player in the center (index 0) and joined players next to them!
     let playersToShow: LobbyPlayerInfo[];
     if (this.currentLobbyPlayers.length === 0) {
       playersToShow = [
@@ -453,7 +638,39 @@ export class DoomLobby {
       neonRing.position.y = 4.1;
       pedestalGroup.add(neonRing);
 
-      // Build 3D Character with their equipped Character Skin, Neon Skin, and held Weapon Skin!
+      // Spinning Concentric Hologram Tech Rings
+      const holoRingA = new THREE.Mesh(
+        new THREE.TorusGeometry(18.5, 0.5, 6, 24),
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(neonDef.colorHex), wireframe: true })
+      );
+      holoRingA.rotation.x = Math.PI / 2;
+      holoRingA.position.y = 4.3;
+      pedestalGroup.add(holoRingA);
+
+      const holoRingB = new THREE.Mesh(
+        new THREE.TorusGeometry(20.5, 0.4, 6, 28),
+        new THREE.MeshBasicMaterial({ color: 0x38bdf8, wireframe: true })
+      );
+      holoRingB.rotation.x = Math.PI / 2;
+      holoRingB.position.y = 4.4;
+      pedestalGroup.add(holoRingB);
+
+      // Vertical Upward Holographic Cylinder Energy Beam
+      const holoBeam = new THREE.Mesh(
+        new THREE.CylinderGeometry(17, 17, 50, 20, 1, true),
+        new THREE.MeshBasicMaterial({
+          color: new THREE.Color(neonDef.colorHex),
+          transparent: true,
+          opacity: 0.14,
+          blending: THREE.AdditiveBlending,
+          side: THREE.DoubleSide,
+          depthWrite: false
+        })
+      );
+      holoBeam.position.y = 25;
+      pedestalGroup.add(holoBeam);
+
+      // Build 3D Character
       const charModel = createCyberCharacterModel(
         neonDef.colorHex,
         p.weaponId || 'm16',
@@ -461,7 +678,6 @@ export class DoomLobby {
         false
       );
       charModel.group.position.y = 4;
-      // Rotate character mostly towards screen (-18 deg angle) so both front armor, addons, and held weapon are clearly visible
       charModel.group.rotation.y = -0.32;
       charModel.group.userData = { playerId: p.id, isLocal };
       charModel.group.traverse((child) => {
@@ -485,12 +701,12 @@ export class DoomLobby {
       const isKickOpen = this.selectedKickPlayerId === p.id && canKickThis;
 
       labelEl.innerHTML = `
-        <div style="background: rgba(9, 13, 22, 0.88); backdrop-filter: blur(8px); border: 2px solid ${neonDef.colorHex}; border-radius: 10px; padding: 6px 14px; box-shadow: 0 4px 18px rgba(0,0,0,0.7);">
-          <div style="font-size: 10px; font-weight: 900; color: ${p.isHost ? '#fbbf24' : '#38bdf8'}; letter-spacing: 1px;">
-            ${p.isHost ? '👑 STWÓRCA GRY (HOST)' : isLocal ? '⭐ TWOJA POSTAĆ' : '⚔️ GRACZ W LOBBY'}
+        <div style="background: rgba(6, 10, 18, 0.9); backdrop-filter: blur(10px); border: 2px solid ${neonDef.colorHex}; border-radius: 8px; padding: 6px 14px; box-shadow: 0 4px 20px rgba(0,0,0,0.8), 0 0 15px ${neonDef.colorHex}40; clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);">
+          <div style="font-family: 'Orbitron', sans-serif; font-size: 10px; font-weight: 900; color: ${p.isHost ? '#fbbf24' : '#38bdf8'}; letter-spacing: 1.5px;">
+            ${p.isHost ? '👑 STWÓRCA (HOST)' : isLocal ? '⭐ TWOJA POSTAĆ' : '⚔️ GRACZ'}
           </div>
-          <div style="font-size: 16px; font-weight: 900; color: #f8fafc; letter-spacing: 0.5px;">
-            ${isLocal ? prof.nickname : p.name} ${isLocal ? '<span style="color:#4ade80; font-size:12px;">(TY)</span>' : ''}
+          <div style="font-family: 'Orbitron', sans-serif; font-size: 15px; font-weight: 900; color: #f8fafc; letter-spacing: 1px;">
+            ${isLocal ? prof.nickname : p.name} ${isLocal ? '<span style="color:#22c55e; font-size:11px;">(TY)</span>' : ''}
           </div>
           ${
             canKickThis && !isKickOpen
@@ -499,7 +715,7 @@ export class DoomLobby {
           }
           ${
             isKickOpen
-              ? `<button class="btn-kick-confirm" style="margin-top: 6px; width: 100%; padding: 6px 12px; background: #dc2626; color: #fff; border: 1px solid #fca5a5; border-radius: 6px; font-family: inherit; font-size: 11px; font-weight: 900; cursor: pointer; box-shadow: 0 0 15px rgba(220,38,38,0.6);">
+              ? `<button class="btn-kick-confirm cyber-btn cyber-btn-red" style="margin-top: 6px; width: 100%; padding: 6px 12px; font-size: 11px;">
                   🦵 WYRZUĆ GRACZA (KICK)
                 </button>`
               : ''
@@ -531,6 +747,9 @@ export class DoomLobby {
         isHost: p.isHost,
         isLocal,
         pedestalGroup,
+        holoRingA,
+        holoRingB,
+        holoBeam,
         charModel,
         labelEl
       });
