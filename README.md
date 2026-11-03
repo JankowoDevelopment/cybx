@@ -115,4 +115,6 @@ Automated deployments trigger on every push to `main` via GitHub Actions.
 
 ## 📜 License
 
-MIT License &copy; 2026 CYBX Team
+**All Rights Reserved &copy; 2026 Mariusz Gruszka**
+
+This project is **Source-Available** for personal inspection, educational study, and reference. No redistribution, copying, commercial exploitation, or public re-hosting is permitted without explicit written permission from the author. See the [LICENSE](LICENSE) file for complete terms.
