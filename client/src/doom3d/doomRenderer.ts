@@ -275,7 +275,7 @@ export class Doom3DRenderer {
     const bg = ctx.createLinearGradient(0, 0, 0, 256);
     bg.addColorStop(0, '#020617');
     bg.addColorStop(0.45, '#0c192c');
-    bg.addColorStop(0.5, '#0ea5e9');
+    bg.addColorStop(0.5, '#0369a1');
     bg.addColorStop(0.55, '#090d16');
     bg.addColorStop(1, '#020409');
     ctx.fillStyle = bg;
@@ -286,7 +286,7 @@ export class Doom3DRenderer {
     for (let i = 0; i < 8; i++) {
       const x = (i / 8) * 512;
       ctx.fillStyle = neonColors[i % neonColors.length];
-      ctx.globalAlpha = 0.35;
+      ctx.globalAlpha = 0.20;
       ctx.fillRect(x, 110, 48, 36);
     }
     ctx.globalAlpha = 1.0;
@@ -504,9 +504,9 @@ export class Doom3DRenderer {
           map: floorTex,
           bumpMap: floorTex,
           bumpScale: 1.4,
-          roughness: 0.11,
-          metalness: 0.90,
-          envMapIntensity: 1.5
+          roughness: 0.22,
+          metalness: 0.78,
+          envMapIntensity: 0.80 // decreased floor reflections to match walls and eliminate white blowout
         });
 
         const floorMesh = new THREE.Mesh(floorGeo, floorMat);
@@ -522,17 +522,17 @@ export class Doom3DRenderer {
       map: this.textures.wallBrick,
       bumpMap: this.textures.wallBrick,
       bumpScale: 2.0,
-      roughness: 0.18,
-      metalness: 0.88,
-      envMapIntensity: 0.85 // minimally decreased wall reflections
+      roughness: 0.22,
+      metalness: 0.80,
+      envMapIntensity: 0.80
     });
     const perimeterMat = new THREE.MeshStandardMaterial({
       map: this.textures.wallPerimeter,
       bumpMap: this.textures.wallPerimeter,
       bumpScale: 1.8,
-      roughness: 0.16,
-      metalness: 0.90,
-      envMapIntensity: 0.85
+      roughness: 0.20,
+      metalness: 0.82,
+      envMapIntensity: 0.80
     });
 
     // Balanced Neon Colors (Vibrant colors without blinding glare)
