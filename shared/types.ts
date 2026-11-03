@@ -1,3 +1,5 @@
+import { PlayerCosmetics } from './skins.js';
+
 export type WeaponType =
   | 'm1911'
   | 'shotgun'
@@ -86,6 +88,7 @@ export interface PlayerState {
   headshots: number;
   cards: string[]; // ROUNDS card IDs
   items: string[]; // item IDs
+  cosmetics?: PlayerCosmetics;
   color: string;
 }
 
@@ -201,11 +204,22 @@ export interface GameSnapshot {
   cardPickerName: string | null;
   offeredCards: string[];
   roundWinnerName: string | null;
+  roundWinnerId?: string | null;
+}
+
+export interface LobbyPlayerInfo {
+  id: string;
+  name: string;
+  isHost: boolean;
+  weaponId?: WeaponType;
+  cosmetics?: PlayerCosmetics;
 }
 
 // Network packets
 export type ClientPacket =
-  | { type: 'join_room'; playerName: string; roomCode?: string }
+  | { type: 'join_room'; playerName: string; roomCode?: string; cosmetics?: PlayerCosmetics }
+  | { type: 'update_profile'; playerName: string; cosmetics: PlayerCosmetics }
+  | { type: 'kick_player'; targetPlayerId: string }
   | { type: 'start_game' }
   | { type: 'input'; up: boolean; down: boolean; left: boolean; right: boolean; mouseX: number; mouseY: number; shoot: boolean; yaw?: number; moveX?: number; moveY?: number }
   | { type: 'dash' }
@@ -218,7 +232,8 @@ export type ClientPacket =
 
 export type ServerPacket =
   | { type: 'room_joined'; roomCode: string; playerId: string; isHost: boolean }
-  | { type: 'lobby_update'; players: { id: string; name: string; isHost: boolean }[]; canStart: boolean }
+  | { type: 'lobby_update'; players: LobbyPlayerInfo[]; canStart: boolean }
+  | { type: 'kicked'; reason: string }
   | { type: 'game_init'; map: any; wallBuys: WallBuyState[]; doors: DoorState[]; mysteryBox?: MysteryBoxState }
   | { type: 'snapshot'; state: GameSnapshot }
   | { type: 'sound_event'; sound: 'shoot' | 'reload' | 'zombie_groan' | 'zombie_death' | 'hit' | 'round_start' | 'round_end' | 'buy' | 'nuke' | 'mystery_box' | 'downed' | 'revived' | 'dash' | 'explosion'; weapon?: WeaponType; shooterId?: string; x?: number; y?: number }

@@ -13,6 +13,7 @@ import { WEAPONS } from '@shared/weapons.js';
 import { createDefaultMap, MapData, WallRect } from '@shared/map.js';
 import { createDoomTextures, DoomTextureSet } from './doomTextures.js';
 import { DoomWeaponRenderer, create3DWeaponMesh } from './doomWeapon.js';
+import { createCyberCharacterModel } from './characterModel.js';
 import { DoomHud } from './doomHud.js';
 import { ShopModal } from '../ui/shopModal.js';
 import { CardDraftModal } from '../ui/cardDraftModal.js';
@@ -27,7 +28,8 @@ interface OpponentModel3D {
   armR: THREE.Group;
   gunMesh: THREE.Group;
   weaponId: WeaponType;
-  torso: THREE.Mesh;
+  torso?: THREE.Mesh;
+  skinKey?: string;
   walkPhase: number;
   lastX: number;
   lastZ: number;
@@ -1470,7 +1472,7 @@ export class Doom3DRenderer {
       let hpBar = this.playerHpBars.get(p.id);
 
       if (!model) {
-        model = this.createCyberOpponentModel(p.color || '#ef4444', p.weaponId);
+        model = createCyberCharacterModel(p.color || '#ef4444', p.weaponId, p.cosmetics, true);
         model.group.position.set(p.x, 0, p.y);
         model.lastX = p.x;
         model.lastZ = p.y;
@@ -1505,7 +1507,7 @@ export class Doom3DRenderer {
       // Update opponent's 3D held weapon if they unlocked a new weapon card!
       if (model.weaponId !== p.weaponId) {
         model.armR.remove(model.gunMesh);
-        const newGun = create3DWeaponMesh(p.weaponId);
+        const newGun = create3DWeaponMesh(p.weaponId, p.cosmetics?.weaponSkinId, p.cosmetics?.neonSkinId);
         newGun.scale.set(1.1, 1.1, 1.1);
         newGun.rotation.y = Math.PI;
         newGun.position.set(0, 1, 12);

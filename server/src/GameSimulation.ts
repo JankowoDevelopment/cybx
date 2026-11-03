@@ -15,7 +15,8 @@ import {
 import { createDefaultMap, MapData, WallRect } from '../../shared/map.js';
 import { WEAPONS } from '../../shared/weapons.js';
 import { DEADLOCK_ITEMS } from '../../shared/items.js';
-import { ROUNDS_CARDS, RoundsCardDef } from '../../shared/cards.js';
+import { ROUNDS_CARDS, RoundsCardDef, drawWeightedRandomCards } from '../../shared/cards.js';
+import { PlayerCosmetics, DEFAULT_COSMETICS, getNeonSkin } from '../../shared/skins.js';
 import { SERVER_CONFIG } from '../../shared/constants.js';
 import { resolveWallCollisions, resolveMovement, circleOverlapsRect, lineRectIntersection, lineSegmentCircleIntersection } from './Collision.js';
 import { updateZombie } from './ZombieAI.js';
@@ -53,6 +54,7 @@ export class GameSimulation {
   public cardPickerName: string | null = null;
   public offeredCards: string[] = [];
   public roundWinnerName: string | null = null;
+  public roundWinnerId: string | null = null;
   public eliminatedOrder: string[] = [];
   public cardPickQueue: string[] = [];
   public zombiesToSpawnThisRound: number = 0;
@@ -83,11 +85,11 @@ export class GameSimulation {
     this.mysteryBox = this.map.mysteryBox ? JSON.parse(JSON.stringify(this.map.mysteryBox)) : undefined;
   }
 
-  public addPlayer(id: string, name: string): PlayerState {
+  public addPlayer(id: string, name: string, cosmetics?: PlayerCosmetics): PlayerState {
     const spawnIndex = this.players.size % this.map.playerSpawns.length;
     const spawn = this.map.playerSpawns[spawnIndex];
     const colors = ['#ef4444', '#38bdf8', '#fbbf24', '#22c55e'];
-    const color = colors[this.players.size % colors.length];
+    const color = cosmetics?.neonSkinId ? getNeonSkin(cosmetics.neonSkinId).colorHex : colors[this.players.size % colors.length];
 
     const player: PlayerState = {
       id,
@@ -117,6 +119,7 @@ export class GameSimulation {
       headshots: 0,
       cards: [],
       items: [],
+      cosmetics: cosmetics || { ...DEFAULT_COSMETICS },
       color
     };
 
@@ -132,6 +135,14 @@ export class GameSimulation {
     });
 
     return player;
+  }
+
+  public updatePlayerProfile(id: string, name: string, cosmetics: PlayerCosmetics): void {
+    const p = this.players.get(id);
+    if (!p) return;
+    p.name = name;
+    p.cosmetics = cosmetics;
+    p.color = getNeonSkin(cosmetics.neonSkinId).colorHex;
   }
 
   public removePlayer(id: string): void {
@@ -158,6 +169,7 @@ export class GameSimulation {
     this.cardPickerName = null;
     this.offeredCards = [];
     this.roundWinnerName = null;
+    this.roundWinnerId = null;
     this.eliminatedOrder = [];
     this.cardPickQueue = [];
     this.pendingBursts = [];
@@ -221,7 +233,7 @@ export class GameSimulation {
   public drawRandomCards(count: number, currentCards: string[] = []): string[] {
     const available = ROUNDS_CARDS.map((c) => c.id);
     const shuffled = [...available].sort(() => 0.5 - Math.random());
-    return shuffled.slice(0, count);
+    return drawWeightedRandomCards(count, currentCards);
   }
 
   public pickRoundsCard(playerId: string, cardId: string): void {
@@ -276,6 +288,7 @@ export class GameSimulation {
     this.cardPickerName = null;
     this.offeredCards = [];
     this.roundWinnerName = null;
+    this.roundWinnerId = null;
     this.bullets = [];
     this.pendingBursts = [];
     this.eliminatedOrder = [];
@@ -355,6 +368,7 @@ export class GameSimulation {
         winner.roundWins = (winner.roundWins || 0) + 1;
         winner.points += 100;
         this.roundWinnerName = winner.name;
+        this.roundWinnerId = winner.id;
         this.onGameEvent?.('round_win', `🏆 RUNDĘ ${this.round} WYGRYWA: ${winner.name}!`, '#22c55e');
       } else {
         this.roundWinnerName = 'REMIS';
@@ -1191,6 +1205,7 @@ export class GameSimulation {
       cardPickerName: this.cardPickerName,
       offeredCards: this.offeredCards,
       roundWinnerName: this.roundWinnerName,
+      roundWinnerId: this.roundWinnerId,
       players: Array.from(this.players.values()),
       zombies: this.zombies,
       bullets: this.bullets,

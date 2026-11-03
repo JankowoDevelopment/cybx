@@ -1,3 +1,5 @@
+import { setCookieJson, getCookieJson } from './profileManager.js';
+
 export type GraphicsQuality = 'low' | 'medium' | 'high';
 
 export interface GameSettings {
@@ -37,6 +39,10 @@ class SettingsManager {
   }
 
   private load(): GameSettings {
+    const fromCookie = getCookieJson<Partial<GameSettings>>(STORAGE_KEY);
+    if (fromCookie) {
+      return { ...DEFAULT_SETTINGS, ...fromCookie };
+    }
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
@@ -50,6 +56,7 @@ class SettingsManager {
   }
 
   private save(): void {
+    setCookieJson(STORAGE_KEY, this.settings);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.settings));
     } catch (_e) {

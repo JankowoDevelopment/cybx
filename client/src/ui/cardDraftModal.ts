@@ -193,17 +193,17 @@ export class CardDraftModal {
     const cardEl = document.createElement('div');
 
     const rarityColors = {
-      common: '#38bdf8',
-      rare: '#f59e0b',
+      common: '#94a3b8',
+      rare: '#38bdf8',
       epic: '#a855f7',
-      legendary: '#ef4444'
+      legendary: '#fbbf24'
     };
 
     const rarityLabels = {
-      common: 'ZWYKŁA',
-      rare: 'RZADKA',
-      epic: 'EPICKA',
-      legendary: 'LEGENDARNA'
+      common: 'ZWYKŁA • 70%',
+      rare: 'RZADKA • 22%',
+      epic: 'EPICKA • 7%',
+      legendary: '★ LEGENDARNA • 1% ★'
     };
 
     const color = rarityColors[card.rarity] || '#38bdf8';

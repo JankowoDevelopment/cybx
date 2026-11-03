@@ -1,5 +1,5 @@
 {
-  "name": "CyberArenaRounds",
+  "name": "ShootBulletMonkey",
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {

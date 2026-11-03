@@ -1,0 +1,2 @@
+-- Intentionally empty: overrides Roblox's default "Health" regeneration script.
+-- HP and regeneration are fully server-controlled by StatsService.

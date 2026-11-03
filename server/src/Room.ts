@@ -1,6 +1,7 @@
 import { WebSocket } from 'ws';
 import { GameSimulation, PlayerInput } from './GameSimulation.js';
 import { ClientPacket, ServerPacket } from '../../shared/types.js';
+import { PlayerCosmetics, DEFAULT_COSMETICS } from '../../shared/skins.js';
 import { SERVER_CONFIG } from '../../shared/constants.js';
 
 export interface RoomClient {
@@ -8,6 +9,7 @@ export interface RoomClient {
   name: string;
   ws: WebSocket;
   isHost: boolean;
+  cosmetics?: PlayerCosmetics;
 }
 
 export class Room {
@@ -72,8 +74,12 @@ export class Room {
       return false;
     }
 
+    if (!client.cosmetics) {
+      client.cosmetics = { ...DEFAULT_COSMETICS };
+    }
+
     this.clients.set(client.id, client);
-    this.simulation.addPlayer(client.id, client.name);
+    this.simulation.addPlayer(client.id, client.name, client.cosmetics);
 
     // Send joined confirmation
     client.ws.send(
@@ -118,7 +124,19 @@ export class Room {
     // Pass host if needed
     if (client.isHost) {
       const nextClient = this.clients.values().next().value;
-      if (nextClient) nextClient.isHost = true;
+      if (nextClient) {
+        nextClient.isHost = true;
+        if (nextClient.ws.readyState === WebSocket.OPEN) {
+          nextClient.ws.send(
+            JSON.stringify({
+              type: 'room_joined',
+              roomCode: this.code,
+              playerId: nextClient.id,
+              isHost: true
+            } as ServerPacket)
+          );
+        }
+      }
     }
 
     this.broadcastLobbyUpdate();
@@ -134,6 +152,33 @@ export class Room {
           this.startGame();
         }
         break;
+
+      case 'update_profile': {
+        const cleanName = (packet.playerName || client.name || 'DoomGuy').trim().substring(0, 15) || 'DoomGuy';
+        client.name = cleanName;
+        client.cosmetics = packet.cosmetics || client.cosmetics || { ...DEFAULT_COSMETICS };
+        this.simulation.updatePlayerProfile(clientId, client.name, client.cosmetics);
+        this.broadcastLobbyUpdate();
+        break;
+      }
+
+      case 'kick_player': {
+        if (client.isHost && packet.targetPlayerId && packet.targetPlayerId !== clientId) {
+          const target = this.clients.get(packet.targetPlayerId);
+          if (target) {
+            if (target.ws.readyState === WebSocket.OPEN) {
+              target.ws.send(
+                JSON.stringify({
+                  type: 'kicked',
+                  reason: `Zostałeś wyrzucony z pokoju przez stwórcę gry (${client.name})!`
+                } as ServerPacket)
+              );
+            }
+            this.removeClient(packet.targetPlayerId);
+          }
+        }
+        break;
+      }
 
       case 'input':
         this.simulation.setPlayerInput(clientId, {
@@ -204,8 +249,8 @@ export class Room {
     this.simulation = new GameSimulation();
 
     // Re-wire events
-    this.simulation.onSoundEvent = (sound, weapon, shooterId) => {
-      this.broadcast({ type: 'sound_event', sound, weapon, shooterId });
+    this.simulation.onSoundEvent = (sound, weapon, shooterId, x, y) => {
+      this.broadcast({ type: 'sound_event', sound, weapon, shooterId, x, y });
     };
     this.simulation.onGameEvent = (event, text, color) => {
       this.broadcast({ type: 'game_event', event, text, color });
@@ -218,7 +263,7 @@ export class Room {
     };
 
     for (const c of playersCopy) {
-      this.simulation.addPlayer(c.id, c.name);
+      this.simulation.addPlayer(c.id, c.name, c.cosmetics);
     }
 
     this.startGame();
@@ -249,11 +294,16 @@ export class Room {
   }
 
   private broadcastLobbyUpdate(): void {
-    const players = Array.from(this.clients.values()).map((c) => ({
-      id: c.id,
-      name: c.name,
-      isHost: c.isHost
-    }));
+    const players = Array.from(this.clients.values()).map((c) => {
+      const simPlayer = this.simulation.players.get(c.id);
+      return {
+        id: c.id,
+        name: c.name,
+        isHost: c.isHost,
+        weaponId: simPlayer?.weaponId || 'm16',
+        cosmetics: c.cosmetics
+      };
+    });
 
     this.broadcast({
       type: 'lobby_update',

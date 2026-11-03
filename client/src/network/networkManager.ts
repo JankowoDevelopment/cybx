@@ -1,4 +1,4 @@
-import { ClientPacket, ServerPacket, GameSnapshot, DoorState, WallBuyState, MysteryBoxState } from '@shared/types.js';
+import { ClientPacket, ServerPacket, GameSnapshot, DoorState, WallBuyState, MysteryBoxState, LobbyPlayerInfo } from '@shared/types.js';
 
 export class NetworkManager {
   private ws: WebSocket | null = null;
@@ -8,7 +8,8 @@ export class NetworkManager {
   public lastGameInitPacket: { map: any; doors: DoorState[]; wallBuys: WallBuyState[]; mysteryBox?: MysteryBoxState } | null = null;
 
   public onRoomJoined?: (data: { roomCode: string; playerId: string; isHost: boolean }) => void;
-  public onLobbyUpdate?: (data: { players: { id: string; name: string; isHost: boolean }[]; canStart: boolean }) => void;
+  public onLobbyUpdate?: (data: { players: LobbyPlayerInfo[]; canStart: boolean }) => void;
+  public onKicked?: (reason: string) => void;
   public onGameInit?: (data: { map: any; doors: DoorState[]; wallBuys: WallBuyState[]; mysteryBox?: MysteryBoxState }) => void;
   public onSnapshot?: (snapshot: GameSnapshot) => void;
   public onSoundEvent?: (sound: string, weapon?: any, shooterId?: string, x?: number, y?: number) => void;
@@ -18,6 +19,9 @@ export class NetworkManager {
   public onError?: (msg: string) => void;
 
   public connect(url?: string): Promise<void> {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      return Promise.resolve();
+    }
     return new Promise((resolve, reject) => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = url || `${protocol}//${window.location.host}/ws`;
@@ -58,6 +62,12 @@ export class NetworkManager {
 
       case 'lobby_update':
         this.onLobbyUpdate?.(packet);
+        break;
+
+      case 'kicked':
+        this.roomCode = '';
+        this.isHost = false;
+        this.onKicked?.(packet.reason);
         break;
 
       case 'game_init':

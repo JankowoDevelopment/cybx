@@ -18,9 +18,18 @@ local function moduleRef(name)
 	return { __module = name, Name = name, Parent = folderProxy }
 end
 
+-- Pre-read sources up front: fs calls yield and cannot run inside metamethods.
+local sources = {}
+for _, f in fs.readDir(SHARED_DIR) do
+	local name = f:match("^(.+)%.luau$")
+	if name then
+		sources[name] = fs.readFile(SHARED_DIR .. "/" .. f)
+	end
+end
+
 folderProxy = setmetatable({ Name = "Shared" }, {
 	__index = function(_, key)
-		if fs.isFile(SHARED_DIR .. "/" .. key .. ".luau") then
+		if sources[key] then
 			return moduleRef(key)
 		end
 		error("Shared has no module named " .. tostring(key), 2)
@@ -33,7 +42,7 @@ local function shimRequire(ref)
 		return cache[name]
 	end
 	local path = SHARED_DIR .. "/" .. name .. ".luau"
-	local source = fs.readFile(path)
+	local source = sources[name]
 	local env = {
 		script = moduleRef(name),
 		require = shimRequire,

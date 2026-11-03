@@ -85,7 +85,8 @@ wss.on('connection', (ws: WebSocket) => {
           id: clientId,
           name: clientName,
           ws,
-          isHost
+          isHost,
+          cosmetics: packet.cosmetics
         };
 
         const added = room.addClient(clientObj);

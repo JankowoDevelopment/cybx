@@ -1,23 +1,29 @@
 import * as THREE from 'three';
 import { WeaponType } from '@shared/types.js';
+import { getWeaponSkin, getNeonSkin } from '@shared/skins.js';
+import { profileManager } from '../settings/profileManager.js';
 
-export function create3DWeaponMesh(weaponId: WeaponType): THREE.Group {
+export function create3DWeaponMesh(weaponId: WeaponType, weaponSkinId?: string, neonSkinId?: string): THREE.Group {
+  const wepSkin = getWeaponSkin(weaponSkinId);
+  const neonSkin = getNeonSkin(neonSkinId);
+  const hasCustomWepSkin = Boolean(weaponSkinId && weaponSkinId !== 'wep_default');
+  const hasCustomNeonSkin = Boolean(neonSkinId && neonSkinId !== 'neon_cyan');
   const group = new THREE.Group();
 
   const darkMetal = new THREE.MeshStandardMaterial({
-    color: 0x1e293b,
+    color: hasCustomWepSkin ? new THREE.Color(wepSkin.bodyHex) : 0x1e293b,
     roughness: 0.18,
     metalness: 0.92,
     envMapIntensity: 2.2
   });
   const gunMetal = new THREE.MeshStandardMaterial({
-    color: 0x334155,
+    color: hasCustomWepSkin ? new THREE.Color(wepSkin.barrelHex) : 0x334155,
     roughness: 0.14,
     metalness: 0.95,
     envMapIntensity: 2.5
   });
   const gripMat = new THREE.MeshStandardMaterial({
-    color: 0x0f172a,
+    color: hasCustomWepSkin ? new THREE.Color(wepSkin.gripHex) : 0x0f172a,
     roughness: 0.55,
     metalness: 0.45,
     envMapIntensity: 1.2
@@ -36,7 +42,8 @@ export function create3DWeaponMesh(weaponId: WeaponType): THREE.Group {
   if (weaponId === 'gauss') neonColor = 0x06b6d4;
 
   // Boosted HDR color (> 1.0) so UnrealBloomPass creates a rich neon glow around weapon rails & cores!
-  const hdrNeon = new THREE.Color(neonColor).multiplyScalar(1.95);
+  const chosenNeonHex = hasCustomNeonSkin ? neonSkin.colorHex : hasCustomWepSkin ? wepSkin.accentHex : neonColor;
+  const hdrNeon = new THREE.Color(chosenNeonHex).multiplyScalar(1.95);
   const neonMat = new THREE.MeshBasicMaterial({ color: hdrNeon });
 
   if (weaponId === 'm16') {
@@ -257,6 +264,7 @@ export class DoomWeaponRenderer {
   public weaponGroup: THREE.Group;
   private currentModel: THREE.Group | null = null;
   private currentWeaponId: WeaponType | null = null;
+  private currentSkinKey: string = '';
   private muzzleMesh: THREE.Mesh;
   private muzzleLight: THREE.PointLight;
 
@@ -337,11 +345,12 @@ export class DoomWeaponRenderer {
 
   public update(dtMs: number, isMoving: boolean, weaponId: WeaponType, reloadProgress: number): void {
     // Rebuild 3D weapon model if weapon changed
-    if (this.currentWeaponId !== weaponId) {
+    if (this.currentWeaponId !== weaponId || this.currentSkinKey !== `${profileManager.get().cosmetics.weaponSkinId}|${profileManager.get().cosmetics.neonSkinId}`) {
+      this.currentSkinKey = `${profileManager.get().cosmetics.weaponSkinId}|${profileManager.get().cosmetics.neonSkinId}`;
       if (this.currentModel) {
         this.weaponGroup.remove(this.currentModel);
       }
-      this.currentModel = create3DWeaponMesh(weaponId);
+      this.currentModel = create3DWeaponMesh(weaponId, profileManager.get().cosmetics.weaponSkinId, profileManager.get().cosmetics.neonSkinId);
       this.weaponGroup.add(this.currentModel);
       this.currentWeaponId = weaponId;
     }

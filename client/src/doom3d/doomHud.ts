@@ -3,6 +3,7 @@ import { WEAPONS } from '@shared/weapons.js';
 import { ROUNDS_CARDS } from '@shared/cards.js';
 import { soundSystem } from '../audio/soundSystem.js';
 import { settingsManager } from '../settings/settingsManager.js';
+import { profileManager } from '../settings/profileManager.js';
 
 export class DoomHud {
   private container: HTMLElement;
@@ -11,6 +12,9 @@ export class DoomHud {
   private myCardsEl: HTMLElement;
   private killfeedEl: HTMLElement;
   private fpsBadgeEl: HTMLElement;
+  private subtlePointsEl: HTMLElement;
+  private winPointsOverlayEl: HTMLElement;
+  private winPointsCounterEl: HTMLElement;
   private muteBtnEl: HTMLButtonElement;
   private settingsBtnEl: HTMLButtonElement;
   private weaponEl: HTMLElement;
@@ -33,9 +37,12 @@ export class DoomHud {
   private lastCountdownSecond: number = -1;
   private lastCardsKey: string = '__init__';
   private lastScoreKey: string = '__init__';
+  private lastRewardedWinRound: number = -1;
   public onOpenSettings?: () => void;
 
   constructor() {
+    const prof = profileManager.get();
+
     this.container = document.createElement('div');
     this.container.id = 'doom-hud';
     this.container.style.cssText = `
@@ -68,9 +75,13 @@ export class DoomHud {
         </div>
       </div>
 
-      <!-- Top Right: Performance & Quick Settings Bar + Live Killfeed -->
+      <!-- Top Right: Performance & Quick Settings Bar + Barely Visible Points + Live Killfeed -->
       <div style="position: absolute; top: 18px; right: 24px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
         <div style="display: flex; align-items: center; gap: 8px; pointer-events: auto;">
+          <!-- Barely visible points counter during normal gameplay ("widac je ledwo") -->
+          <div id="hud-subtle-points" style="opacity: 0.24; color: #fbbf24; font-size: 11px; font-weight: 800; padding: 4px 8px; border-radius: 6px; letter-spacing: 0.5px;">
+            💎 ${prof.points} PKT
+          </div>
           <div id="hud-fps-badge" style="background: rgba(9, 13, 22, 0.82); border: 1px solid rgba(34, 197, 94, 0.45); color: #4ade80; font-size: 12px; font-weight: 800; padding: 6px 11px; border-radius: 8px; letter-spacing: 1px;">
             60 FPS
           </div>
@@ -82,6 +93,16 @@ export class DoomHud {
           </button>
         </div>
         <div id="hud-killfeed" style="width: 340px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; pointer-events: none;">
+        </div>
+      </div>
+
+      <!-- Round Win +100 PKT Animated Count-Up Banner -->
+      <div id="hud-win-points-overlay" style="display: none; position: absolute; top: 18%; left: 50%; transform: translate(-50%, -50%); background: linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(9, 13, 22, 0.98)); border: 2px solid #fbbf24; border-radius: 16px; padding: 16px 36px; text-align: center; box-shadow: 0 0 45px rgba(251, 191, 36, 0.55); z-index: 260; pointer-events: none;">
+        <div style="font-size: 14px; font-weight: 900; color: #4ade80; letter-spacing: 2px; margin-bottom: 4px;">
+          🏆 WYGRAŁEŚ RUNDĘ! NAGRODA +100 PKT
+        </div>
+        <div id="hud-win-points-counter" style="font-size: 36px; font-weight: 900; color: #fbbf24; letter-spacing: 2px; text-shadow: 0 0 20px rgba(251, 191, 36, 0.8);">
+          💎 500 PKT
         </div>
       </div>
 
@@ -156,6 +177,9 @@ export class DoomHud {
     this.myCardsEl = this.container.querySelector('#hud-my-cards')!;
     this.killfeedEl = this.container.querySelector('#hud-killfeed')!;
     this.fpsBadgeEl = this.container.querySelector('#hud-fps-badge')!;
+    this.subtlePointsEl = this.container.querySelector('#hud-subtle-points')!;
+    this.winPointsOverlayEl = this.container.querySelector('#hud-win-points-overlay')!;
+    this.winPointsCounterEl = this.container.querySelector('#hud-win-points-counter')!;
     this.muteBtnEl = this.container.querySelector('#hud-btn-mute')!;
     this.settingsBtnEl = this.container.querySelector('#hud-btn-settings')!;
     this.weaponEl = this.container.querySelector('#hud-weapon-name')!;
@@ -187,6 +211,42 @@ export class DoomHud {
 
     this.syncSettingsUI();
     settingsManager.onChange(() => this.syncSettingsUI());
+  }
+
+  private triggerWinPointsAnimation(oldPts: number, newPts: number): void {
+    this.winPointsOverlayEl.style.display = 'block';
+    this.winPointsCounterEl.textContent = `💎 ${oldPts} PKT`;
+
+    const duration = 1400;
+    const startTime = performance.now();
+    let lastTickStep = 0;
+
+    const step = (now: number) => {
+      const elapsed = now - startTime;
+      const pct = Math.min(1, elapsed / duration);
+      const easeOut = 1 - Math.pow(1 - pct, 3);
+      const currentVal = Math.round(oldPts + (newPts - oldPts) * easeOut);
+
+      this.winPointsCounterEl.textContent = `💎 ${currentVal} PKT (+100)`;
+      this.subtlePointsEl.textContent = `💎 ${currentVal} PKT`;
+
+      const tickStep = Math.floor(pct * 10);
+      if (tickStep > lastTickStep) {
+        lastTickStep = tickStep;
+        soundSystem.playSound('buy');
+      }
+
+      if (pct < 1) {
+        requestAnimationFrame(step);
+      } else {
+        setTimeout(() => {
+          if (this.winPointsOverlayEl) {
+            this.winPointsOverlayEl.style.display = 'none';
+          }
+        }, 2400);
+      }
+    };
+    requestAnimationFrame(step);
   }
 
   public syncSettingsUI(): void {
@@ -271,6 +331,17 @@ export class DoomHud {
   }
 
   public update(player: PlayerState, snapshot: GameSnapshot): void {
+    // Check if local player just won this round -> award +100 PKT & play count-up animation!
+    if (
+      snapshot.roundWinnerId === player.id &&
+      this.lastRewardedWinRound !== snapshot.round &&
+      snapshot.roundState !== 'countdown'
+    ) {
+      this.lastRewardedWinRound = snapshot.round;
+      const { oldPoints, newPoints } = profileManager.addPoints(100);
+      this.triggerWinPointsAnimation(oldPoints, newPoints);
+    }
+
     // 1. Top ROUNDS Scoreboard (Dirty-checked to avoid unnecessary DOM reflows)
     const scoreKey = `${snapshot.round}|` + snapshot.players.map((p) => `${p.id}:${p.roundWins || 0}`).join(',');
     if (scoreKey !== this.lastScoreKey) {
