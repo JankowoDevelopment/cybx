@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bgGrad" cx="50%" cy="40%" r="65%">
+      <stop offset="0%" stop-color="#141e33" />
+      <stop offset="70%" stop-color="#070a12" />
+      <stop offset="100%" stop-color="#030509" />
+    </radialGradient>
+
+    <!-- Cyber Neon Gradients -->
+    <linearGradient id="cyanGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+
+    <linearGradient id="magentaGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f43f5e" />
+      <stop offset="50%" stop-color="#ec4899" />
+      <stop offset="100%" stop-color="#a855f7" />
+    </linearGradient>
+
+    <linearGradient id="goldGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a" />
+      <stop offset="100%" stop-color="#f59e0b" />
+    </linearGradient>
+
+    <!-- Neon Glow Filter -->
+    <filter id="neonBlur" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="subtleGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background Cyber Squircle Plate -->
+  <rect x="24" y="24" width="464" height="464" rx="108" fill="url(#bgGrad)" stroke="#1e293b" stroke-width="6" />
+
+  <!-- Outer Neon Armor Ring -->
+  <rect x="40" y="40" width="432" height="432" rx="92" fill="none" stroke="url(#cyanGlow)" stroke-width="4" opacity="0.4" />
+
+  <!-- Tactical Corner Notches -->
+  <path d="M 64 120 L 64 64 L 120 64" fill="none" stroke="#38bdf8" stroke-width="8" stroke-linecap="round" />
+  <path d="M 448 120 L 448 64 L 392 64" fill="none" stroke="#38bdf8" stroke-width="8" stroke-linecap="round" />
+  <path d="M 64 392 L 64 448 L 120 448" fill="none" stroke="#ec4899" stroke-width="8" stroke-linecap="round" />
+  <path d="M 448 392 L 448 448 L 392 448" fill="none" stroke="#ec4899" stroke-width="8" stroke-linecap="round" />
+
+  <!-- Angular Cyber "C" (Cyan Neon Segment) -->
+  <path d="M 330 145 
+           L 210 145 
+           L 140 215 
+           L 140 297 
+           L 210 367 
+           L 330 367 
+           L 330 315 
+           L 230 315 
+           L 194 279 
+           L 194 233 
+           L 230 197 
+           L 330 197 Z" 
+        fill="url(#cyanGlow)" 
+        filter="url(#neonBlur)" />
+
+  <!-- Angular Cyber "X" / Crosshair Slice (Hot Magenta) -->
+  <!-- Top-Right to Bottom-Left Blade -->
+  <path d="M 390 145 
+           L 325 145 
+           L 265 235 
+           L 300 275 
+           L 390 145 Z" 
+        fill="url(#magentaGlow)" 
+        filter="url(#neonBlur)" />
+
+  <path d="M 390 367 
+           L 325 367 
+           L 255 265 
+           L 285 225 
+           L 390 367 Z" 
+        fill="url(#magentaGlow)" 
+        filter="url(#neonBlur)" />
+
+  <path d="M 230 270 
+           L 175 355 
+           L 225 355 
+           L 265 295 Z" 
+        fill="url(#magentaGlow)" 
+        opacity="0.85" />
+
+  <!-- Center Targeting Optic Diamond -->
+  <polygon points="256,220 286,256 256,292 226,256" fill="#f8fafc" filter="url(#subtleGlow)" />
+  <polygon points="256,236 272,256 256,276 240,256" fill="#00f0ff" />
+
+  <!-- Tactical Crosshair Tick Marks -->
+  <line x1="256" y1="92" x2="256" y2="124" stroke="#38bdf8" stroke-width="6" stroke-linecap="round" />
+  <line x1="256" y1="388" x2="256" y2="420" stroke="#ec4899" stroke-width="6" stroke-linecap="round" />
+  <line x1="92" y1="256" x2="124" y2="256" stroke="#38bdf8" stroke-width="6" stroke-linecap="round" />
+  <line x1="388" y1="256" x2="420" y2="256" stroke="#ec4899" stroke-width="6" stroke-linecap="round" />
+
+  <!-- PVP Neon Badge at Bottom -->
+  <rect x="196" y="408" width="120" height="32" rx="8" fill="#090d16" stroke="url(#magentaGlow)" stroke-width="3" />
+  <text x="256" y="430" fill="#f8fafc" font-family="'Chakra Petch', 'Segoe UI', monospace" font-size="19" font-weight="900" letter-spacing="4" text-anchor="middle">PVP</text>
+</svg>
