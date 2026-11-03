@@ -8,7 +8,7 @@ import { GameSnapshot, PlayerState, WeaponType, ZombieState } from '@shared/type
 import { SERVER_CONFIG } from '@shared/constants.js';
 import { DEADLOCK_ITEMS } from '@shared/items.js';
 import { ROUNDS_CARDS } from '@shared/cards.js';
-import { resolveMovement, hasLineOfSight, getFloorHeightAt } from '@shared/collision.js';
+import { resolveMovement, hasLineOfSight, getFloorHeightAt, findTouchingWallNormal } from '@shared/collision.js';
 import { WEAPONS } from '@shared/weapons.js';
 import { createDefaultMap, MapData, WallRect } from '@shared/map.js';
 import { createDoomTextures, DoomTextureSet } from './doomTextures.js';
@@ -74,6 +74,7 @@ export class Doom3DRenderer {
   private baseFov: number = 75;
   private clientBhopStreak: number = 0;
   private clientLastLandedTime: number = 0;
+  private lastClientWallJump: number = 0;
   private hasInitializedPos: boolean = false;
   private headBobTimer: number = 0;
   private cameraShake: number = 0;
@@ -974,17 +975,34 @@ export class Doom3DRenderer {
       this.pressedKeys.add(e.code);
 
       if (e.code === 'Space') {
-        if (this.isClientGrounded && this.latestSnapshot?.roundState === 'active') {
+        if (this.latestSnapshot?.roundState === 'active') {
           const now = performance.now();
-          const landedAgo = now - this.clientLastLandedTime;
-          if (landedAgo <= SERVER_CONFIG.BHOP_WINDOW_MS && this.clientBhopStreak > 0) {
-            this.clientBhopStreak = Math.min(8, this.clientBhopStreak + 1);
+          if (this.isClientGrounded) {
+            const landedAgo = now - this.clientLastLandedTime;
+            if (landedAgo <= SERVER_CONFIG.BHOP_WINDOW_MS && this.clientBhopStreak > 0) {
+              this.clientBhopStreak = Math.min(8, this.clientBhopStreak + 1);
+            } else {
+              this.clientBhopStreak = 1;
+            }
+            this.predictedVz = SERVER_CONFIG.JUMP_IMPULSE;
+            this.isClientGrounded = false;
+            networkManager.send({ type: 'jump' });
           } else {
-            this.clientBhopStreak = 1;
+            // Airborne Wall-Jump off any wall face
+            if (now - this.lastClientWallJump > 180) {
+              const walls = this.getEffectiveWalls();
+              const wallCheck = findTouchingWallNormal(this.predictedX, this.predictedZ, this.predictedY, SERVER_CONFIG.PLAYER_RADIUS, walls);
+              if (wallCheck.touching) {
+                this.lastClientWallJump = now;
+                this.predictedVz = SERVER_CONFIG.JUMP_IMPULSE * 0.95;
+                this.predictedX += wallCheck.nx * 24;
+                this.predictedZ += wallCheck.ny * 24;
+                this.clientBhopStreak = Math.min(8, this.clientBhopStreak + 1);
+                soundSystem.playSound('jump');
+                networkManager.send({ type: 'jump' });
+              }
+            }
           }
-          this.predictedVz = SERVER_CONFIG.JUMP_IMPULSE;
-          this.isClientGrounded = false;
-          networkManager.send({ type: 'jump' });
         }
       }
 
@@ -1285,6 +1303,21 @@ export class Doom3DRenderer {
       for (const door of this.latestSnapshot.doors) {
         if (!door.isOpen) {
           walls.push({ x: door.x, y: door.y, w: door.width, h: door.height });
+        }
+      }
+      if (this.latestSnapshot.barrels) {
+        for (const b of this.latestSnapshot.barrels) {
+          if (!b.isExploded) {
+            walls.push({
+              x: b.x - 18,
+              y: b.y - 18,
+              w: 36,
+              h: 36,
+              maxZ: 38,
+              isWalkableTop: true,
+              wallType: 'crate'
+            });
+          }
         }
       }
     } else {

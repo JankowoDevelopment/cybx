@@ -167,49 +167,49 @@ export function createDefaultMap(): MapData {
       // OSŁONY I SKRZYNIE PRZY SPAWNACH NAROŻNYCH
       // ==========================================
       // NW (Spawn 500, 500)
-      { x: 800, y: 500, w: 80, h: 300, maxZ: 100 },
-      { x: 500, y: 800, w: 300, h: 80, maxZ: 100 },
-      { x: 1100, y: 1100, w: 140, h: 140, maxZ: 140 },
+      { x: 800, y: 500, w: 80, h: 300, maxZ: 100, isWalkableTop: true },
+      { x: 500, y: 800, w: 300, h: 80, maxZ: 100, isWalkableTop: true },
+      { x: 1100, y: 1100, w: 140, h: 140, maxZ: 140, isWalkableTop: true },
       { x: 900, y: 700, w: 70, h: 70, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
       { x: 970, y: 700, w: 70, h: 70, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
 
       // SE (Spawn 4300, 4300)
-      { x: 3920, y: 4000, w: 80, h: 300, maxZ: 100 },
-      { x: 4000, y: 3920, w: 300, h: 80, maxZ: 100 },
-      { x: 3560, y: 3560, w: 140, h: 140, maxZ: 140 },
+      { x: 3920, y: 4000, w: 80, h: 300, maxZ: 100, isWalkableTop: true },
+      { x: 4000, y: 3920, w: 300, h: 80, maxZ: 100, isWalkableTop: true },
+      { x: 3560, y: 3560, w: 140, h: 140, maxZ: 140, isWalkableTop: true },
       { x: 3830, y: 4030, w: 70, h: 70, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
       { x: 3760, y: 4030, w: 70, h: 70, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
 
       // NE (Spawn 4300, 500)
-      { x: 3920, y: 500, w: 80, h: 300, maxZ: 100 },
-      { x: 4000, y: 800, w: 300, h: 80, maxZ: 100 },
-      { x: 3560, y: 1100, w: 140, h: 140, maxZ: 140 },
+      { x: 3920, y: 500, w: 80, h: 300, maxZ: 100, isWalkableTop: true },
+      { x: 4000, y: 800, w: 300, h: 80, maxZ: 100, isWalkableTop: true },
+      { x: 3560, y: 1100, w: 140, h: 140, maxZ: 140, isWalkableTop: true },
       { x: 3830, y: 700, w: 70, h: 70, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
       { x: 3760, y: 700, w: 70, h: 70, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
 
       // SW (Spawn 500, 4300)
-      { x: 800, y: 4000, w: 80, h: 300, maxZ: 100 },
-      { x: 500, y: 3920, w: 300, h: 80, maxZ: 100 },
-      { x: 1100, y: 3560, w: 140, h: 140, maxZ: 140 },
+      { x: 800, y: 4000, w: 80, h: 300, maxZ: 100, isWalkableTop: true },
+      { x: 500, y: 3920, w: 300, h: 80, maxZ: 100, isWalkableTop: true },
+      { x: 1100, y: 3560, w: 140, h: 140, maxZ: 140, isWalkableTop: true },
       { x: 900, y: 4030, w: 70, h: 70, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
       { x: 970, y: 4030, w: 70, h: 70, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
 
       // ==========================================
       // FILARY KOLOSSEUM I SCHODY WOKÓŁ FILARÓW
       // ==========================================
-      { x: 1400, y: 1400, w: 120, h: 120, maxZ: 140 },
+      { x: 1400, y: 1400, w: 120, h: 120, maxZ: 140, isWalkableTop: true },
       { x: 1310, y: 1425, w: 70, h: 70, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
       { x: 1425, y: 1310, w: 70, h: 70, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
 
-      { x: 3280, y: 1400, w: 120, h: 120, maxZ: 140 },
+      { x: 3280, y: 1400, w: 120, h: 120, maxZ: 140, isWalkableTop: true },
       { x: 3420, y: 1425, w: 70, h: 70, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
       { x: 3285, y: 1310, w: 70, h: 70, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
 
-      { x: 1400, y: 3280, w: 120, h: 120, maxZ: 140 },
+      { x: 1400, y: 3280, w: 120, h: 120, maxZ: 140, isWalkableTop: true },
       { x: 1310, y: 3305, w: 70, h: 70, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
       { x: 1425, y: 3420, w: 70, h: 70, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
 
-      { x: 3280, y: 3280, w: 120, h: 120, maxZ: 140 },
+      { x: 3280, y: 3280, w: 120, h: 120, maxZ: 140, isWalkableTop: true },
       { x: 3420, y: 3305, w: 70, h: 70, maxZ: 45, isWalkableTop: true, wallType: 'crate' },
       { x: 3285, y: 3420, w: 70, h: 70, maxZ: 90, isWalkableTop: true, wallType: 'crate' },
 

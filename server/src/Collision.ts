@@ -3,6 +3,7 @@ export {
   circleOverlapsRect,
   resolveMovement,
   getFloorHeightAt,
+  findTouchingWallNormal,
   lineLineIntersection,
   lineRectIntersection,
   lineSegmentCylinderIntersection,

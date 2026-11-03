@@ -226,7 +226,7 @@ export class DoomLobby {
       </div>
       <!-- BOTTOM LEFT: Movement Controls Hint -->
       <div style="position: absolute; bottom: 18px; left: 26px; z-index: 15; font-family: 'Orbitron', sans-serif; font-size: 10px; color: #64748b; font-weight: 800; letter-spacing: 1px; display: flex; align-items: center; gap: 10px; pointer-events: none;">
-        <span>SPACJA: <strong style="color: #38bdf8;">SKOK / BHOP</strong></span>
+        <span>SPACJA: <strong style="color: #38bdf8;">SKOK / BHOP / WALL-JUMP</strong></span>
         <span>&bull;</span>
         <span>L-SHIFT: <strong style="color: #ef4444;">DASH</strong></span>
         <span>&bull;</span>

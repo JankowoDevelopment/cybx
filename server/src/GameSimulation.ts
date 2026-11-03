@@ -18,7 +18,7 @@ import { DEADLOCK_ITEMS } from '../../shared/items.js';
 import { ROUNDS_CARDS, RoundsCardDef, drawWeightedRandomCards } from '../../shared/cards.js';
 import { PlayerCosmetics, DEFAULT_COSMETICS, getNeonSkin } from '../../shared/skins.js';
 import { SERVER_CONFIG } from '../../shared/constants.js';
-import { resolveWallCollisions, resolveMovement, circleOverlapsRect, lineRectIntersection, lineSegmentCircleIntersection, getFloorHeightAt, lineSegmentCylinderIntersection } from './Collision.js';
+import { resolveWallCollisions, resolveMovement, circleOverlapsRect, lineRectIntersection, lineSegmentCircleIntersection, getFloorHeightAt, lineSegmentCylinderIntersection, findTouchingWallNormal } from './Collision.js';
 import { updateZombie } from './ZombieAI.js';
 
 export interface PlayerInput {
@@ -70,6 +70,7 @@ export class GameSimulation {
 
   private playerPitch: Map<string, number> = new Map();
   private playerLastGrounded: Map<string, number> = new Map();
+  private playerLastWallJump: Map<string, number> = new Map();
   private playerLastShot: Map<string, number> = new Map();
   private pendingBursts: { playerId: string; shotsLeft: number; nextShotTime: number; intervalMs: number }[] = [];
   private zombieLastAttack: Map<string, number> = new Map();
@@ -338,6 +339,20 @@ export class GameSimulation {
           y: door.y,
           w: door.width,
           h: door.height
+        });
+      }
+    }
+    // Interactive explosive hazard barrels (walkable top at height 38)
+    for (const b of this.barrels) {
+      if (!b.isExploded) {
+        walls.push({
+          x: b.x - 18,
+          y: b.y - 18,
+          w: 36,
+          h: 36,
+          maxZ: 38,
+          isWalkableTop: true,
+          wallType: 'crate'
         });
       }
     }
@@ -810,10 +825,26 @@ export class GameSimulation {
           if (card?.stats.hasImpactSlam) hasImpactSlam = true;
         }
 
-        // Process jump key press
-        if (input.jump && player.isGrounded) {
-          this.triggerJump(player.id);
-          input.jump = false;
+        // Process jump key press (Grounded jump or Airborne Wall Jump off any wall face)
+        if (input.jump) {
+          if (player.isGrounded) {
+            this.triggerJump(player.id);
+            input.jump = false;
+          } else {
+            const lastWj = this.playerLastWallJump.get(player.id) || 0;
+            if (now - lastWj > 180) {
+              const wallCheck = findTouchingWallNormal(player.x, player.y, player.z || 0, SERVER_CONFIG.PLAYER_RADIUS, walls);
+              if (wallCheck.touching) {
+                this.playerLastWallJump.set(player.id, now);
+                player.vz = Math.max(player.vz || 0, jumpImpulse * 0.95);
+                player.x += wallCheck.nx * 24;
+                player.y += wallCheck.ny * 24;
+                player.bhopStreak = Math.min(8, (player.bhopStreak || 0) + 1);
+                this.onSoundEvent?.('jump', undefined, player.id, player.x, player.y);
+                input.jump = false;
+              }
+            }
+          }
         }
 
         // Reset bhop streak if walking on ground for too long

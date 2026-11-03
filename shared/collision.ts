@@ -20,6 +20,7 @@ export function circleOverlapsRect(
  * Returns the highest walkable floor height directly below or supporting the player.
  * Checks that the surface is at or below the player's feet (with a step allowance)
  * so that high walls or blocks do not suddenly snatch the player from the ground.
+ * Every interior wall, pillar, crate, and barrier on the map has a walkable top.
  */
 export function getFloorHeightAt(
   x: number,
@@ -32,11 +33,11 @@ export function getFloorHeightAt(
   const footRadius = Math.min(14, radius);
   for (let i = 0; i < walls.length; i++) {
     const w = walls[i];
-    if (w.isWalkableTop && w.maxZ !== undefined) {
-      if (currentZ < w.maxZ - 12) continue;
-      if (circleOverlapsRect(x, y, footRadius, w.x, w.y, w.w, w.h)) {
-        if (w.maxZ > highest) highest = w.maxZ;
-      }
+    if (w.isPerimeter) continue;
+    const wallMaxZ = w.maxZ !== undefined ? w.maxZ : 140;
+    if (currentZ < wallMaxZ - 12) continue;
+    if (circleOverlapsRect(x, y, footRadius, w.x, w.y, w.w, w.h)) {
+      if (wallMaxZ > highest) highest = wallMaxZ;
     }
   }
   return highest;
@@ -60,8 +61,8 @@ export function resolveMovement(
     for (let i = 0; i < walls.length; i++) {
       const wall = walls[i];
       const wallMaxZ = wall.maxZ !== undefined ? wall.maxZ : 140;
-      // If player is on or above the top surface of this block, horizontal collision is ignored
-      if (currentZ >= wallMaxZ - 6) continue;
+      // If player is on or above the top surface of this wall, horizontal collision is ignored
+      if (!wall.isPerimeter && currentZ >= wallMaxZ - 6) continue;
 
       if (circleOverlapsRect(posX, posY, radius, wall.x, wall.y, wall.w, wall.h)) {
         if (deltaX > 0) {
@@ -79,7 +80,7 @@ export function resolveMovement(
     for (let i = 0; i < walls.length; i++) {
       const wall = walls[i];
       const wallMaxZ = wall.maxZ !== undefined ? wall.maxZ : 140;
-      if (currentZ >= wallMaxZ - 6) continue;
+      if (!wall.isPerimeter && currentZ >= wallMaxZ - 6) continue;
 
       if (circleOverlapsRect(posX, posY, radius, wall.x, wall.y, wall.w, wall.h)) {
         if (deltaY > 0) {
@@ -92,6 +93,40 @@ export function resolveMovement(
   }
 
   return { x: posX, y: posY };
+}
+
+/**
+ * Checks if an airborne player is touching or brushing against a vertical wall face,
+ * and returns the outward normal pointing away from the wall for wall-jumping.
+ */
+export function findTouchingWallNormal(
+  x: number,
+  y: number,
+  currentZ: number,
+  radius: number,
+  walls: WallRect[]
+): { touching: boolean; nx: number; ny: number } {
+  const checkRadius = radius + 8;
+  for (let i = 0; i < walls.length; i++) {
+    const wall = walls[i];
+    const wallMaxZ = wall.maxZ !== undefined ? wall.maxZ : 140;
+    // Player must be alongside the vertical face of the wall (not already standing on top)
+    if (currentZ < wallMaxZ - 6) {
+      if (circleOverlapsRect(x, y, checkRadius, wall.x, wall.y, wall.w, wall.h)) {
+        const closestX = Math.max(wall.x, Math.min(x, wall.x + wall.w));
+        const closestY = Math.max(wall.y, Math.min(y, wall.y + wall.h));
+        const dx = x - closestX;
+        const dy = y - closestY;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 0.001) {
+          return { touching: true, nx: dx / dist, ny: dy / dist };
+        } else {
+          return { touching: true, nx: 0, ny: 1 };
+        }
+      }
+    }
+  }
+  return { touching: false, nx: 0, ny: 0 };
 }
 
 export function lineLineIntersection(
