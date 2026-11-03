@@ -11,6 +11,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+// 301 Permanent Redirect: cybx.pl -> www.cybx.pl
+app.use((req, res, next) => {
+  const host = (req.headers.host || '').toLowerCase();
+  if (host === 'cybx.pl' || host.startsWith('cybx.pl:')) {
+    return res.redirect(301, `https://www.cybx.pl${req.originalUrl}`);
+  }
+  next();
+});
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
