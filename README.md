@@ -3,8 +3,7 @@
 > **High-octane 3D Cyberpunk Free-For-All arena shooter running directly in your browser with WebGL (Three.js) & WebSockets.**  
 > Zero installation required. Instant acceleration, snappy arena physics, real-time multiplayer, and HDR bloom visuals.
 
-🎮 **Play Live:** [https://cybx.pl](https://cybx.pl)  
-🌐 **Mirror:** [https://deadlock-zombies-game.fly.dev](https://deadlock-zombies-game.fly.dev)
+🎮 **Play Live:** [https://cybx.pl](https://cybx.pl)
 
 ---
 
