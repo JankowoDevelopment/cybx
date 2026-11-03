@@ -161,7 +161,7 @@ export class Doom3DRenderer {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.14;
+    this.renderer.toneMappingExposure = 1.0;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.container.appendChild(this.renderer.domElement);
@@ -173,9 +173,9 @@ export class Doom3DRenderer {
 
     this.bloomPass = new UnrealBloomPass(
       new THREE.Vector2(Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2)),
-      0.58, // strength
-      0.55, // radius
-      0.68  // threshold (only bright HDR neons, bullets & explosions glow!)
+      0.30, // strength (clean subtle cyber glow, no blinding blowout)
+      0.38, // radius
+      0.86  // threshold (prevents surfaces and reflections from blooming)
     );
     this.composer.addPass(this.bloomPass);
     this.composer.addPass(new OutputPass());
@@ -281,23 +281,15 @@ export class Doom3DRenderer {
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, 512, 256);
 
-    // Bright neon horizon & vertical light panels for specular reflections
-    const neonColors = ['#38bdf8', '#ec4899', '#f59e0b', '#a855f7', '#22c55e', '#ef4444'];
-    for (let i = 0; i < 18; i++) {
-      const x = (i / 18) * 512;
+    // Muted ambient neon horizon bands (Soft reflections without blinding glare)
+    const neonColors = ['#0284c7', '#7c3aed', '#059669', '#d97706'];
+    for (let i = 0; i < 8; i++) {
+      const x = (i / 8) * 512;
       ctx.fillStyle = neonColors[i % neonColors.length];
-      ctx.fillRect(x, 96, 14, 64);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(x + 4, 110, 6, 36);
+      ctx.globalAlpha = 0.35;
+      ctx.fillRect(x, 110, 48, 36);
     }
-
-    // Glowing overhead cyber rings
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 6;
-    ctx.strokeRect(20, 28, 472, 42);
-    ctx.strokeStyle = '#ec4899';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(40, 186, 432, 34);
+    ctx.globalAlpha = 1.0;
 
     const eqTex = new THREE.CanvasTexture(c);
     eqTex.mapping = THREE.EquirectangularReflectionMapping;
@@ -484,12 +476,10 @@ export class Doom3DRenderer {
         const floorMat = new THREE.MeshStandardMaterial({
           map: floorTex,
           bumpMap: floorTex,
-          bumpScale: 1.4,
-          roughness: 0.11,
-          metalness: 0.90,
-          envMapIntensity: 2.8,
-          transparent: true,
-          opacity: 0.82
+          bumpScale: 1.0,
+          roughness: 0.58,
+          metalness: 0.25,
+          envMapIntensity: 0.35
         });
 
         const floorMesh = new THREE.Mesh(floorGeo, floorMat);
@@ -504,29 +494,29 @@ export class Doom3DRenderer {
     const brickMat = new THREE.MeshStandardMaterial({
       map: this.textures.wallBrick,
       bumpMap: this.textures.wallBrick,
-      bumpScale: 2.0,
-      roughness: 0.18,
-      metalness: 0.88,
-      envMapIntensity: 2.4
+      bumpScale: 1.4,
+      roughness: 0.52,
+      metalness: 0.30,
+      envMapIntensity: 0.40
     });
     const perimeterMat = new THREE.MeshStandardMaterial({
       map: this.textures.wallPerimeter,
       bumpMap: this.textures.wallPerimeter,
-      bumpScale: 1.8,
-      roughness: 0.16,
-      metalness: 0.90,
-      envMapIntensity: 2.4
+      bumpScale: 1.2,
+      roughness: 0.50,
+      metalness: 0.32,
+      envMapIntensity: 0.40
     });
 
-    // HDR Neon Colors (> 1.0) trigger intense UnrealBloomPass glow!
+    // Balanced Neon Colors (Vibrant colors without blinding glare)
     const cyanNeonMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0x38bdf8).multiplyScalar(2.15)
+      color: new THREE.Color(0x38bdf8).multiplyScalar(1.35)
     });
     const redNeonMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0xef4444).multiplyScalar(2.1)
+      color: new THREE.Color(0xef4444).multiplyScalar(1.35)
     });
     const purpleNeonMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0xa855f7).multiplyScalar(1.95)
+      color: new THREE.Color(0xa855f7).multiplyScalar(1.30)
     });
 
     // Reflected under-floor materials (visible through the 82% glossy floor!)
@@ -575,15 +565,7 @@ export class Doom3DRenderer {
         this.scene.add(midTrim);
       }
 
-      // FAKE RAY-TRACING: Mirrored Under-Floor Wall & Neon Reflection!
-      const reflH = h * 0.65;
-      const reflWall = new THREE.Mesh(new THREE.BoxGeometry(wall.w, reflH, wall.h), reflWallMat);
-      reflWall.position.set(cx, -reflH / 2 - 1, cz);
-      this.scene.add(reflWall);
 
-      const reflTopTrim = new THREE.Mesh(trimGeo, wall.isPerimeter ? reflRedNeonMat : reflCyanNeonMat);
-      reflTopTrim.position.set(cx, -reflH - 2, cz);
-      this.scene.add(reflTopTrim);
     }
 
     // 5. 3D Doors
