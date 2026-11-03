@@ -156,6 +156,14 @@ export class SettingsModal {
             <input type="checkbox" id="chk-shadows" ${s.shadowsEnabled ? 'checked' : ''} style="width: 20px; height: 20px; accent-color: #22c55e; cursor: pointer;" />
           </div>
 
+          <div style="margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
+              <span>Poświata / Bloom (0% = Wyłączony)</span>
+              <b id="val-bloom" style="color: #38bdf8;">${s.bloomIntensity ?? 20}%</b>
+            </div>
+            <input type="range" id="rng-bloom" min="0" max="100" step="5" value="${s.bloomIntensity ?? 20}" style="width: 100%; accent-color: #38bdf8; cursor: pointer;" />
+          </div>
+
           <div style="display: flex; align-items: center; justify-content: space-between;">
             <span style="font-size: 14px; font-weight: 700;">Pokazuj Licznik FPS w rogu ekranu</span>
             <input type="checkbox" id="chk-fps" ${s.showFps ? 'checked' : ''} style="width: 20px; height: 20px; accent-color: #22c55e; cursor: pointer;" />
@@ -259,6 +267,14 @@ export class SettingsModal {
     const chkShadows = this.overlay.querySelector('#chk-shadows') as HTMLInputElement;
     chkShadows?.addEventListener('change', () => {
       settingsManager.update({ shadowsEnabled: chkShadows.checked });
+    });
+
+    const rngBloom = this.overlay.querySelector('#rng-bloom') as HTMLInputElement;
+    const valBloom = this.overlay.querySelector('#val-bloom') as HTMLElement;
+    rngBloom?.addEventListener('input', () => {
+      const v = Number(rngBloom.value);
+      if (valBloom) valBloom.textContent = `${v}%`;
+      settingsManager.update({ bloomIntensity: v });
     });
 
     const chkFps = this.overlay.querySelector('#chk-fps') as HTMLInputElement;

@@ -171,12 +171,15 @@ export class Doom3DRenderer {
     const renderPass = new RenderPass(this.scene, this.camera);
     this.composer.addPass(renderPass);
 
+    const initSettings = settingsManager.get();
+    const initBloom = initSettings.bloomIntensity ?? 20;
     this.bloomPass = new UnrealBloomPass(
       new THREE.Vector2(Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2)),
-      0.28, // strength (crisp cyber glow)
-      0.35, // radius
-      1.20  // threshold (CRITICAL: higher than 1.0 ensures standard reflections & specular highlights NEVER bloom into blinding glare)
+      (initBloom / 100) * 0.30, // strength
+      0.30, // radius
+      1.35  // threshold (CRITICAL: 1.35 guarantees surfaces and reflections NEVER bloom into white glare)
     );
+    this.bloomPass.enabled = initSettings.graphicsQuality !== 'low' && initBloom > 0;
     this.composer.addPass(this.bloomPass);
     this.composer.addPass(new OutputPass());
 
@@ -320,7 +323,10 @@ export class Doom3DRenderer {
     this.composer?.setPixelRatio(dpr);
 
     if (this.bloomPass) {
-      this.bloomPass.enabled = s.graphicsQuality !== 'low';
+      const bInt = s.bloomIntensity ?? 20;
+      this.bloomPass.enabled = s.graphicsQuality !== 'low' && bInt > 0;
+      this.bloomPass.strength = (bInt / 100) * 0.30;
+      this.bloomPass.threshold = 1.35;
     }
 
     if (this.renderer.shadowMap.enabled !== s.shadowsEnabled) {
@@ -766,6 +772,57 @@ export class Doom3DRenderer {
     };
   }
 
+  private sendImmediateMovementInput(): void {
+    if (this.latestSnapshot?.roundState !== 'active') return;
+    const forward = (this.pressedKeys.has('KeyW') || this.pressedKeys.has('ArrowUp') ? 1 : 0) -
+                    (this.pressedKeys.has('KeyS') || this.pressedKeys.has('ArrowDown') ? 1 : 0);
+    const strafe = (this.pressedKeys.has('KeyD') || this.pressedKeys.has('ArrowRight') ? 1 : 0) -
+                   (this.pressedKeys.has('KeyA') || this.pressedKeys.has('ArrowLeft') ? 1 : 0);
+    const isMoving = forward !== 0 || strafe !== 0;
+
+    let moveX = 0;
+    let moveY = 0;
+    if (isMoving) {
+      const forwardDir = new THREE.Vector3();
+      this.camera.getWorldDirection(forwardDir);
+      forwardDir.y = 0;
+      forwardDir.normalize();
+
+      const rightDir = new THREE.Vector3();
+      rightDir.crossVectors(forwardDir, new THREE.Vector3(0, 1, 0)).normalize();
+
+      const moveVec = new THREE.Vector3();
+      if (forward !== 0) moveVec.addScaledVector(forwardDir, forward);
+      if (strafe !== 0) moveVec.addScaledVector(rightDir, strafe);
+      if (moveVec.lengthSq() > 0) {
+        moveVec.normalize();
+        moveX = moveVec.x;
+        moveY = moveVec.z;
+      }
+    }
+
+    const serverYaw = Math.atan2(this.camForwardZ || 0, this.camForwardX || 1);
+    networkManager.send({
+      type: 'input',
+      up: forward > 0,
+      down: forward < 0,
+      left: strafe < 0,
+      right: strafe > 0,
+      moveX,
+      moveY,
+      yaw: serverYaw,
+      mouseX: this.predictedX + Math.cos(serverYaw) * 100,
+      mouseY: this.predictedZ + Math.sin(serverYaw) * 100,
+      shoot:
+        this.isMouseDown &&
+        this.isPointerLocked &&
+        !this.shopModal.isOpen &&
+        !this.cardDraftModal.isOpen &&
+        !this.settingsModal.isOpen
+    });
+    this.lastInputSendTime = performance.now();
+  }
+
   private setupEvents(): void {
     this.shopModal.onOpen = () => {
       this.hud.setShopOpen(true);
@@ -852,6 +909,10 @@ export class Doom3DRenderer {
       if (this.cardDraftModal.isOpen || this.settingsModal.isOpen) return;
       this.pressedKeys.add(e.code);
 
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+        this.sendImmediateMovementInput();
+      }
+
       if (this.latestSnapshot?.roundState === 'active') {
         if (e.code === 'KeyR') {
           networkManager.send({ type: 'reload' });
@@ -865,6 +926,9 @@ export class Doom3DRenderer {
 
     window.addEventListener('keyup', (e) => {
       this.pressedKeys.delete(e.code);
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+        this.sendImmediateMovementInput();
+      }
     });
 
     window.addEventListener('resize', () => {
@@ -1260,11 +1324,12 @@ export class Doom3DRenderer {
         const errZ = localPlayer.y - this.predictedZ;
         const distSq = errX * errX + errZ * errZ;
 
-        if (distSq > 120 * 120) {
+        if (distSq > 100 * 100) {
           this.predictedX = localPlayer.x;
           this.predictedZ = localPlayer.y;
-        } else if (distSq > 0.04) {
-          const blend = Math.min(1, dtSec * 15);
+        } else if (!isMoving && distSq > 0.04) {
+          // Instant acceleration: only reconcile tiny drift when stationary, preventing backward pull when starting!
+          const blend = Math.min(1, dtSec * 25);
           this.predictedX += errX * blend;
           this.predictedZ += errZ * blend;
         }
@@ -1538,7 +1603,7 @@ export class Doom3DRenderer {
           model.group.position.x = p.x;
           model.group.position.z = p.y;
         } else {
-          const lerpRate = Math.min(1, dtSec * 18);
+          const lerpRate = Math.min(1, dtSec * 35);
           model.group.position.x += dx * lerpRate;
           model.group.position.z += dz * lerpRate;
         }

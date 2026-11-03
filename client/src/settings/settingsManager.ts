@@ -11,6 +11,7 @@ export interface GameSettings {
   fov: number; // 60 to 110
   graphicsQuality: GraphicsQuality;
   shadowsEnabled: boolean;
+  bloomIntensity: number; // 0 to 100 (0 = disabled, default 20)
   occlusionCulling: boolean; // Culls bullets/barrels/VFX behind player or behind walls (keeps player models visible)
   showFps: boolean;
 }
@@ -26,6 +27,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   fov: 75,
   graphicsQuality: 'high',
   shadowsEnabled: true,
+  bloomIntensity: 20,
   occlusionCulling: true,
   showFps: true
 };
