@@ -68,6 +68,9 @@ export class Doom3DRenderer {
   // Client-Side Prediction & Motion Smoothing
   private predictedX: number = 500;
   private predictedZ: number = 500;
+  private predictedY: number = 0;
+  private predictedVz: number = 0;
+  private isClientGrounded: boolean = true;
   private hasInitializedPos: boolean = false;
   private headBobTimer: number = 0;
   private cameraShake: number = 0;
@@ -549,6 +552,9 @@ export class Doom3DRenderer {
     });
     const purpleNeonMat = new THREE.MeshBasicMaterial({
       color: new THREE.Color(0xa855f7).multiplyScalar(1.30)
+    });
+    const goldNeonMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0xf59e0b).multiplyScalar(1.40)
     });
 
     // Reflected under-floor materials (visible through the 82% glossy floor!)

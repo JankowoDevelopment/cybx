@@ -45,7 +45,7 @@ export class GameScene extends Phaser.Scene {
   private mapData: any = null;
   private doors: DoorState[] = [];
   private wallBuys: WallBuyState[] = [];
-  private mysteryBox: MysteryBoxState | null = null;
+  private mysteryBox: MysteryBoxState | null | undefined = null;
   private latestSnapshot: GameSnapshot | null = null;
 
   // Keys

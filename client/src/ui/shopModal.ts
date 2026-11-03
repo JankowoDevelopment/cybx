@@ -126,4 +126,8 @@ export class ShopModal {
       }
     });
   }
+
+  public destroy(): void {
+    this.close();
+  }
 }

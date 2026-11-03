@@ -114,7 +114,7 @@ export class DoomHud {
       <!-- Center Pointer Lock Notice -->
       <div id="hud-pointerlock-notice" style="position: absolute; top: 42%; left: 50%; transform: translate(-50%, -50%); background: rgba(9, 13, 22, 0.88); backdrop-filter: blur(16px); border: 1px solid rgba(56,189,248,0.5); border-top: 3px solid #38bdf8; padding: 22px 38px; border-radius: 16px; color: #fff; font-size: 18px; font-weight: 900; text-align: center; letter-spacing: 1.5px; pointer-events: auto; cursor: pointer; box-shadow: 0 20px 50px rgba(0,0,0,0.85), 0 0 30px rgba(56,189,248,0.2);">
         🎯 KLIKNIJ, ABY AKTYWOWAĆ CELOWANIE 3D<br>
-        <span style="font-size: 12px; color: #94a3b8; font-family: 'Inter', sans-serif; font-weight: 500; margin-top: 6px; display: inline-block;">[WASD] Ruch &bull; [SPACJA] Cyber-Dash &bull; [R] Przeładowanie &bull; [E] Broń ze stojaka</span>
+        <span style="font-size: 12px; color: #94a3b8; font-family: 'Inter', sans-serif; font-weight: 500; margin-top: 6px; display: inline-block;">[WASD] Ruch &bull; [SPACJA] Skok / Bhop &bull; [L-SHIFT] Dash &bull; [R] Przeładowanie</span>
       </div>
 
       <!-- Center Elimination Alert (shows who killed you & who won the round) -->

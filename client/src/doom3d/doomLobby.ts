@@ -152,7 +152,7 @@ export class DoomLobby {
         </div>
         <div style="font-family: 'Orbitron', sans-serif; font-size: 11px; color: #38bdf8; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; display: flex; align-items: center; gap: 8px;">
           <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 10px #22c55e;"></span>
-          <span>CYBER ARENA 3D // V2.0 ONLINE</span>
+          <span>CYBER ARENA 3D // V1.4.0 ONLINE</span>
           <span style="color: #64748b;">&bull;</span>
           <span style="color: #f59e0b;">KLIKNIJ GRACZA ABY GO WYRZUCIĆ (HOST)</span>
         </div>
