@@ -159,9 +159,9 @@ export class SettingsModal {
           <div style="margin-bottom: 12px;">
             <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px;">
               <span>Poświata / Bloom (0% = Wyłączony)</span>
-              <b id="val-bloom" style="color: #38bdf8;">${s.bloomIntensity ?? 20}%</b>
+              <b id="val-bloom" style="color: #38bdf8;">${s.bloomIntensity ?? 12}%</b>
             </div>
-            <input type="range" id="rng-bloom" min="0" max="100" step="5" value="${s.bloomIntensity ?? 20}" style="width: 100%; accent-color: #38bdf8; cursor: pointer;" />
+            <input type="range" id="rng-bloom" min="0" max="100" step="1" value="${s.bloomIntensity ?? 12}" style="width: 100%; accent-color: #38bdf8; cursor: pointer;" />
           </div>
 
           <div style="display: flex; align-items: center; justify-content: space-between;">

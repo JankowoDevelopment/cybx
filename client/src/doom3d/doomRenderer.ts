@@ -172,7 +172,7 @@ export class Doom3DRenderer {
     this.composer.addPass(renderPass);
 
     const initSettings = settingsManager.get();
-    const initBloom = initSettings.bloomIntensity ?? 20;
+    const initBloom = initSettings.bloomIntensity ?? 12;
     this.bloomPass = new UnrealBloomPass(
       new THREE.Vector2(Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2)),
       (initBloom / 100) * 0.30, // strength
@@ -323,7 +323,7 @@ export class Doom3DRenderer {
     this.composer?.setPixelRatio(dpr);
 
     if (this.bloomPass) {
-      const bInt = s.bloomIntensity ?? 20;
+      const bInt = s.bloomIntensity ?? 12;
       this.bloomPass.enabled = s.graphicsQuality !== 'low' && bInt > 0;
       this.bloomPass.strength = (bInt / 100) * 0.30;
       this.bloomPass.threshold = 1.35;
