@@ -431,32 +431,53 @@ export class DoomWeaponRenderer {
   private drawCrosshair(ctx: CanvasRenderingContext2D): void {
     const cx = this.canvas.width / 2;
     const cy = this.canvas.height / 2;
-    const spreadGap = 6 + this.recoilOffset * 14;
-    const len = 8;
+    const spread = 7 + this.recoilOffset * 20;
+    const bracketLen = 7;
+    const neonCol = getNeonSkin(profileManager.get().cosmetics.neonSkinId).colorHex || '#00f0ff';
 
     ctx.save();
-    // Outer shadow for contrast
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)';
-    ctx.lineWidth = 4;
-    this.strokeCrosshairLines(ctx, cx, cy, spreadGap, len);
 
-    // Inner glowing cyan crosshair
-    const neonCol = getNeonSkin(profileManager.get().cosmetics.neonSkinId).colorHex || '#38bdf8'; ctx.strokeStyle = neonCol;
-    ctx.lineWidth = 2;
-    this.strokeCrosshairLines(ctx, cx, cy, spreadGap, len);
-
-    // Center precision dot
-    ctx.fillStyle = '#f8fafc';
+    // 1. Center Precision Hologram Dot
+    ctx.shadowColor = neonCol;
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = '#ffffff';
     ctx.beginPath();
     ctx.arc(cx, cy, 1.8, 0, Math.PI * 2);
     ctx.fill();
 
-    // Hitmarker X
+    // 2. 4 Angled Cyber-Smart Brackets (Corners)
+    ctx.shadowBlur = 4;
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.lineWidth = 3.5;
+    this.strokeCyberBrackets(ctx, cx, cy, spread, bracketLen);
+
+    ctx.strokeStyle = neonCol;
+    ctx.lineWidth = 1.8;
+    this.strokeCyberBrackets(ctx, cx, cy, spread, bracketLen);
+
+    // 3. Subtle Horizontal & Vertical Micro-Ticks
+    const tickDist = spread + bracketLen + 4;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(cx - tickDist - 4, cy); ctx.lineTo(cx - tickDist, cy);
+    ctx.moveTo(cx + tickDist, cy); ctx.lineTo(cx + tickDist + 4, cy);
+    ctx.moveTo(cx, cy - tickDist - 4); ctx.lineTo(cx, cy - tickDist);
+    ctx.moveTo(cx, cy + tickDist); ctx.lineTo(cx, cy + tickDist + 4);
+    ctx.stroke();
+
+    // 4. Cyberpunk Animated Hitmarker
     if (this.hitmarkerTimer > 0) {
-      ctx.strokeStyle = this.isHitmarkerKill ? '#ef4444' : '#f8fafc';
-      ctx.lineWidth = this.isHitmarkerKill ? 3.5 : 2.2;
-      const hmGap = 5;
-      const hmLen = this.isHitmarkerKill ? 14 : 10;
+      const alpha = Math.min(1, this.hitmarkerTimer / 0.12);
+      ctx.globalAlpha = alpha;
+      const isCrit = this.isHitmarkerKill;
+      ctx.strokeStyle = isCrit ? '#f59e0b' : '#ff0055';
+      ctx.shadowColor = isCrit ? '#fbbf24' : '#ef4444';
+      ctx.shadowBlur = 12;
+      ctx.lineWidth = isCrit ? 3.2 : 2.4;
+
+      const hmGap = 6 + (1 - alpha) * 4;
+      const hmLen = (isCrit ? 15 : 11) + (1 - alpha) * 3;
 
       ctx.beginPath();
       ctx.moveTo(cx - hmGap, cy - hmGap); ctx.lineTo(cx - hmLen, cy - hmLen);
@@ -464,16 +485,26 @@ export class DoomWeaponRenderer {
       ctx.moveTo(cx - hmGap, cy + hmGap); ctx.lineTo(cx - hmLen, cy + hmLen);
       ctx.moveTo(cx + hmGap, cy + hmGap); ctx.lineTo(cx + hmLen, cy + hmLen);
       ctx.stroke();
+
+      if (isCrit) {
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(cx - 5, cy - 5, 10, 10);
+      }
     }
     ctx.restore();
   }
 
-  private strokeCrosshairLines(ctx: CanvasRenderingContext2D, cx: number, cy: number, gap: number, len: number): void {
+  private strokeCyberBrackets(ctx: CanvasRenderingContext2D, cx: number, cy: number, d: number, len: number): void {
     ctx.beginPath();
-    ctx.moveTo(cx - gap - len, cy); ctx.lineTo(cx - gap, cy);
-    ctx.moveTo(cx + gap, cy); ctx.lineTo(cx + gap + len, cy);
-    ctx.moveTo(cx, cy - gap - len); ctx.lineTo(cx, cy - gap);
-    ctx.moveTo(cx, cy + gap); ctx.lineTo(cx, cy + gap + len);
+    // Top-Left [
+    ctx.moveTo(cx - d, cy - d + len); ctx.lineTo(cx - d, cy - d); ctx.lineTo(cx - d + len, cy - d);
+    // Top-Right ]
+    ctx.moveTo(cx + d - len, cy - d); ctx.lineTo(cx + d, cy - d); ctx.lineTo(cx + d, cy - d + len);
+    // Bottom-Left [
+    ctx.moveTo(cx - d, cy + d - len); ctx.lineTo(cx - d, cy + d); ctx.lineTo(cx - d + len, cy + d);
+    // Bottom-Right ]
+    ctx.moveTo(cx + d - len, cy + d); ctx.lineTo(cx + d, cy + d); ctx.lineTo(cx + d, cy + d - len);
     ctx.stroke();
   }
 

@@ -70,7 +70,6 @@ export class GameSimulation {
 
   private playerPitch: Map<string, number> = new Map();
   private playerLastGrounded: Map<string, number> = new Map();
-  private playerLastWallJump: Map<string, number> = new Map();
   private playerLastShot: Map<string, number> = new Map();
   private pendingBursts: { playerId: string; shotsLeft: number; nextShotTime: number; intervalMs: number }[] = [];
   private zombieLastAttack: Map<string, number> = new Map();
@@ -836,26 +835,12 @@ export class GameSimulation {
           if (card?.stats.hasImpactSlam) hasImpactSlam = true;
         }
 
-        // Process jump key press (Grounded jump or Airborne Wall Jump off any wall face)
+        // Process jump key press (Grounded jump only)
         if (input.jump) {
           if (player.isGrounded) {
             this.triggerJump(player.id);
-            input.jump = false;
-          } else {
-            const lastWj = this.playerLastWallJump.get(player.id) || 0;
-            if (now - lastWj > 180) {
-              const wallCheck = findTouchingWallNormal(player.x, player.y, player.z || 0, SERVER_CONFIG.PLAYER_RADIUS, walls);
-              if (wallCheck.touching) {
-                this.playerLastWallJump.set(player.id, now);
-                player.vz = Math.max(player.vz || 0, jumpImpulse * 0.95);
-                player.x += wallCheck.nx * 24;
-                player.y += wallCheck.ny * 24;
-                player.bhopStreak = Math.min(8, (player.bhopStreak || 0) + 1);
-                this.onSoundEvent?.('jump', undefined, player.id, player.x, player.y);
-                input.jump = false;
-              }
-            }
           }
+          input.jump = false;
         }
 
         // Reset bhop streak if walking on ground for too long

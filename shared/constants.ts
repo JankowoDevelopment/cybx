@@ -1,4 +1,4 @@
-export const GAME_VERSION = '1.4.2';
+export const GAME_VERSION = '1.4.3';
 
 export const SERVER_CONFIG = {
   TICK_RATE: 40, // 40 updates per second (25ms)

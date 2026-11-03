@@ -74,7 +74,6 @@ export class Doom3DRenderer {
   private baseFov: number = 75;
   private clientBhopStreak: number = 0;
   private clientLastLandedTime: number = 0;
-  private lastClientWallJump: number = 0;
   private hasInitializedPos: boolean = false;
   private headBobTimer: number = 0;
   private cameraShake: number = 0;
@@ -987,21 +986,6 @@ export class Doom3DRenderer {
             this.predictedVz = SERVER_CONFIG.JUMP_IMPULSE;
             this.isClientGrounded = false;
             networkManager.send({ type: 'jump' });
-          } else {
-            // Airborne Wall-Jump off any wall face
-            if (now - this.lastClientWallJump > 180) {
-              const walls = this.getEffectiveWalls();
-              const wallCheck = findTouchingWallNormal(this.predictedX, this.predictedZ, this.predictedY, SERVER_CONFIG.PLAYER_RADIUS, walls);
-              if (wallCheck.touching) {
-                this.lastClientWallJump = now;
-                this.predictedVz = SERVER_CONFIG.JUMP_IMPULSE * 0.95;
-                this.predictedX += wallCheck.nx * 24;
-                this.predictedZ += wallCheck.ny * 24;
-                this.clientBhopStreak = Math.min(8, this.clientBhopStreak + 1);
-                soundSystem.playSound('jump');
-                networkManager.send({ type: 'jump' });
-              }
-            }
           }
         }
       }
