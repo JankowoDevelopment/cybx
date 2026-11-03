@@ -331,12 +331,12 @@ export class DoomLobby {
       if (this.isDestroyed) return;
       this.animFrameId = requestAnimationFrame(animate);
 
-      // Gentle idle animation & turntable sway on 3D characters
+      // Gentle idle animation & subtle heroic turntable sway on 3D characters
       for (let i = 0; i < this.stageSlots.length; i++) {
         const slot = this.stageSlots[i];
-        const idleY = Math.sin(t * 0.0025 + i) * 0.14;
-        slot.charModel.group.rotation.y = Math.PI / 2 + idleY;
-        slot.charModel.armR.position.y = 28 + Math.sin(t * 0.004 + i) * 0.5;
+        const idleY = Math.sin(t * 0.002 + i) * 0.055;
+        slot.charModel.group.rotation.y = -0.36 + idleY;
+        slot.charModel.armR.position.y = 28 + Math.sin(t * 0.0035 + i) * 0.35;
       }
 
       this.renderer.render(this.scene, this.camera);
@@ -418,8 +418,10 @@ export class DoomLobby {
         false
       );
       charModel.group.position.y = 4;
-      // Rotate character to face camera (+Z)
-      charModel.group.rotation.y = Math.PI / 2;
+      // Rotate character mostly towards screen (-20 deg angle) so both front armor and held weapon are clearly visible
+      charModel.group.rotation.y = -0.36;
+      charModel.armR.rotation.y = -0.16;
+      charModel.armR.rotation.x = -0.08;
       charModel.group.userData = { playerId: p.id, isLocal };
       charModel.group.traverse((child) => {
         child.userData = { playerId: p.id, isLocal };
