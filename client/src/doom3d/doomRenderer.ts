@@ -417,23 +417,22 @@ export class Doom3DRenderer {
     const starMat = new THREE.PointsMaterial({ color: 0xe0f2fe, size: 8, transparent: true, opacity: 0.85 });
     this.scene.add(new THREE.Points(starGeo, starMat));
 
-    // Atmospheric Floating Neon Dust / Cyber-Embers across the arena
-    // Atmospheric Floating Neon Cyber-Motes with Starburst Effect
-    const emberCount = 380;
+    // Atmospheric Floating Neon Cyber-Motes (Vibrant Neon Glow)
+    const emberCount = 600;
     const emberGeo = new THREE.BufferGeometry();
     const emberPos = new Float32Array(emberCount * 3);
     const emberCol = new Float32Array(emberCount * 3);
     const palette = [
-      new THREE.Color(0x38bdf8).multiplyScalar(1.2),
-      new THREE.Color(0xec4899).multiplyScalar(1.2),
-      new THREE.Color(0xfbbf24).multiplyScalar(1.2),
-      new THREE.Color(0xa855f7).multiplyScalar(1.2),
-      new THREE.Color(0x22c55e).multiplyScalar(1.2)
+      new THREE.Color(0x38bdf8).multiplyScalar(3.2), // Vivid Neon Cyan
+      new THREE.Color(0xf43f5e).multiplyScalar(3.2), // Hot Neon Pink
+      new THREE.Color(0xfbbf24).multiplyScalar(3.0), // Neon Amber Gold
+      new THREE.Color(0xa855f7).multiplyScalar(3.2), // Ultraviolet Neon
+      new THREE.Color(0x22c55e).multiplyScalar(3.0)  // Acid Neon Green
     ];
     for (let i = 0; i < emberCount; i++) {
-      emberPos[i * 3] = 200 + Math.random() * (mapW - 400);
-      emberPos[i * 3 + 1] = 8 + Math.random() * 190;
-      emberPos[i * 3 + 2] = 200 + Math.random() * (mapH - 400);
+      emberPos[i * 3] = 160 + Math.random() * (mapW - 320);
+      emberPos[i * 3 + 1] = 10 + Math.random() * 110; // Float around player eye level (y: 34)
+      emberPos[i * 3 + 2] = 160 + Math.random() * (mapH - 320);
       const c = palette[i % palette.length];
       emberCol[i * 3] = c.r;
       emberCol[i * 3 + 1] = c.g;
@@ -442,35 +441,35 @@ export class Doom3DRenderer {
     emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
     emberGeo.setAttribute('color', new THREE.BufferAttribute(emberCol, 3));
 
-    // 4-Point Diamond Starburst Texture
+    // Pure White Glowing Starburst Texture (allows 100% saturated neon vertex colors)
     const pCanvas = document.createElement('canvas');
     pCanvas.width = 64;
     pCanvas.height = 64;
     const pCtx = pCanvas.getContext('2d')!;
-    const pGrad = pCtx.createRadialGradient(32, 32, 0, 32, 32, 28);
+    const pGrad = pCtx.createRadialGradient(32, 32, 0, 32, 32, 30);
     pGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
-    pGrad.addColorStop(0.35, 'rgba(255, 255, 255, 0.85)');
-    pGrad.addColorStop(0.7, 'rgba(56, 189, 248, 0.45)');
-    pGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    pGrad.addColorStop(0.25, 'rgba(255, 255, 255, 0.95)');
+    pGrad.addColorStop(0.6, 'rgba(255, 255, 255, 0.55)');
+    pGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
     pCtx.fillStyle = pGrad;
     pCtx.fillRect(0, 0, 64, 64);
 
     // Crosshair star spikes
-    pCtx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-    pCtx.lineWidth = 2.2;
+    pCtx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    pCtx.lineWidth = 2.8;
     pCtx.beginPath();
-    pCtx.moveTo(32, 6); pCtx.lineTo(32, 58);
-    pCtx.moveTo(6, 32); pCtx.lineTo(58, 32);
+    pCtx.moveTo(32, 4); pCtx.lineTo(32, 60);
+    pCtx.moveTo(4, 32); pCtx.lineTo(60, 32);
     pCtx.stroke();
 
     const pTex = new THREE.CanvasTexture(pCanvas);
 
     const emberMat = new THREE.PointsMaterial({
-      size: 4.8, // minimally increased size
+      size: 9.5, // Increased size for clear visibility
       map: pTex,
       vertexColors: true,
       transparent: true,
-      opacity: 0.58,
+      opacity: 0.85, // Highly visible neon opacity
       blending: THREE.AdditiveBlending,
       depthWrite: false
     });
@@ -1489,7 +1488,7 @@ export class Doom3DRenderer {
       this.atmosphereParticles.rotation.y = Math.sin(timestamp * 0.00015) * 0.08;
       this.atmosphereParticles.position.y = Math.sin(timestamp * 0.0012) * 5;
       const mat = this.atmosphereParticles.material as THREE.PointsMaterial;
-      mat.size = 4.6 + Math.sin(timestamp * 0.0022) * 0.8; // sparkling twinkle animation
+      mat.size = 9.2 + Math.sin(timestamp * 0.0025) * 1.8; // sparkling twinkle animation
     }
 
     if (this.composer && settingsManager.get().graphicsQuality !== 'low') {
