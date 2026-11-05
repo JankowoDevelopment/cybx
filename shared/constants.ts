@@ -1,4 +1,4 @@
-export const GAME_VERSION = '1.4.4';
+export const GAME_VERSION = '1.4.5';
 
 export const SERVER_CONFIG = {
   TICK_RATE: 25, // 25 updates per second (40ms) - Ultra-optimized network tickrate

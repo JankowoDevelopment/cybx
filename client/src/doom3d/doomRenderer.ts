@@ -1422,7 +1422,7 @@ export class Doom3DRenderer {
         }
       }
       if (localPlayer.isDashing) {
-        speed = SERVER_CONFIG.PLAYER_DASH_SPEED;
+        speed = Math.max(speed * 1.8, SERVER_CONFIG.PLAYER_DASH_SPEED);
       }
 
       // Synchronize Bunnyhop speed on client so prediction matches server 1:1 without teleports!
@@ -1545,6 +1545,14 @@ export class Doom3DRenderer {
               this.predictedVz = 0;
               this.isClientGrounded = true;
               this.clientLastLandedTime = performance.now();
+
+              // Auto-bhop if player is continuously holding Space
+              if (this.pressedKeys.has('Space') && snapshot?.roundState === 'active') {
+                this.clientBhopStreak = Math.min(8, (this.clientBhopStreak || 0) + 1);
+                this.predictedVz = SERVER_CONFIG.JUMP_IMPULSE;
+                this.isClientGrounded = false;
+                networkManager.send({ type: 'jump' });
+              }
             }
             this.predictedY += (serverZ - this.predictedY) * Math.min(1, dtSec * 8);
           } else {

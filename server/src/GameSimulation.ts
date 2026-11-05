@@ -794,7 +794,7 @@ export class GameSimulation {
         }
       }
       if (player.isDashing) {
-        speed = SERVER_CONFIG.PLAYER_DASH_SPEED;
+        speed = Math.max(speed * 1.8, SERVER_CONFIG.PLAYER_DASH_SPEED);
       }
 
       if (input && this.roundState === 'active') {
@@ -835,12 +835,9 @@ export class GameSimulation {
           if (card?.stats.hasImpactSlam) hasImpactSlam = true;
         }
 
-        // Process jump key press (Grounded jump only)
-        if (input.jump) {
-          if (player.isGrounded) {
-            this.triggerJump(player.id);
-          }
-          input.jump = false;
+        // Process jump key press (Grounded jump only, auto-bhop while holding space)
+        if (input.jump && player.isGrounded) {
+          this.triggerJump(player.id);
         }
 
         // Reset bhop streak if walking on ground for too long
