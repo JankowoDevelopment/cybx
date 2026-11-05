@@ -28,7 +28,26 @@ app.use((req, res, next) => {
 });
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({
+  server,
+  path: '/ws',
+  perMessageDeflate: false // Lower CPU overhead, compact binary/JSON already reduces size by 75%
+});
+
+// Periodic Heartbeat to clean up ghost connections
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws: any) => {
+    if (ws.isAlive === false) {
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 25000);
+
+wss.on('close', () => {
+  clearInterval(heartbeatInterval);
+});
 
 const rooms = new Map<string, Room>();
 
@@ -64,12 +83,31 @@ function generateRoomCode(): string {
   return code;
 }
 
-wss.on('connection', (ws: WebSocket) => {
+wss.on('connection', (ws: any) => {
+  ws.isAlive = true;
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+
   let currentRoom: Room | null = null;
   let clientId = 'player_' + Math.random().toString(36).substring(2, 9);
   let clientName = 'Survivor';
 
+  let msgCountInWindow = 0;
+  let windowStartTime = Date.now();
+
   ws.on('message', (messageRaw: string) => {
+    // Basic DDoS / flood protection (limit 150 packets/sec per socket)
+    const now = Date.now();
+    if (now - windowStartTime > 1000) {
+      msgCountInWindow = 0;
+      windowStartTime = now;
+    }
+    msgCountInWindow++;
+    if (msgCountInWindow > 160) {
+      return; // Drop excess packets silently
+    }
+
     try {
       const packet: ClientPacket = JSON.parse(messageRaw);
 
@@ -130,7 +168,7 @@ wss.on('connection', (ws: WebSocket) => {
     }
   });
 
-  ws.on('error', (err) => {
+  ws.on('error', (err: any) => {
     console.error(`WebSocket error for client ${clientId}:`, err);
   });
 });

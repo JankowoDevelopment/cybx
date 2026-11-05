@@ -247,7 +247,8 @@ export type ClientPacket =
   | { type: 'interact' }
   | { type: 'buy_item'; itemId: string }
   | { type: 'pick_card'; cardId: string }
-  | { type: 'restart_game' };
+  | { type: 'restart_game' }
+  | { type: 'chat_msg'; text: string };
 
 export type ServerPacket =
   | { type: 'room_joined'; roomCode: string; playerId: string; isHost: boolean }
@@ -255,6 +256,8 @@ export type ServerPacket =
   | { type: 'kicked'; reason: string }
   | { type: 'game_init'; map: any; wallBuys: WallBuyState[]; doors: DoorState[]; mysteryBox?: MysteryBoxState }
   | { type: 'snapshot'; state: GameSnapshot }
+  | { type: 'c_snap'; s: any }
+  | { type: 'chat_msg'; senderId: string; senderName: string; text: string; senderColor?: string }
   | { type: 'sound_event'; sound: 'shoot' | 'reload' | 'zombie_groan' | 'zombie_death' | 'hit' | 'round_start' | 'round_end' | 'buy' | 'nuke' | 'mystery_box' | 'downed' | 'revived' | 'dash' | 'explosion' | 'jump' | 'bhop' | 'impact_slam'; weapon?: WeaponType; shooterId?: string; x?: number; y?: number }
   | { type: 'explosion_event'; x: number; y: number; radius: number }
   | { type: 'game_event'; event: string; text?: string; color?: string }

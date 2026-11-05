@@ -3,6 +3,7 @@ import { GameSimulation, PlayerInput } from './GameSimulation.js';
 import { ClientPacket, ServerPacket } from '../../shared/types.js';
 import { PlayerCosmetics, DEFAULT_COSMETICS } from '../../shared/skins.js';
 import { SERVER_CONFIG } from '../../shared/constants.js';
+import { packSnapshot } from '../../shared/protocol.js';
 
 export interface RoomClient {
   id: string;
@@ -230,6 +231,22 @@ export class Room {
           this.restartGame();
         }
         break;
+
+      case 'chat_msg': {
+        const rawText = (packet.text || '').trim();
+        if (rawText.length > 0) {
+          const text = rawText.substring(0, 140);
+          const simPlayer = this.simulation.players.get(clientId);
+          this.broadcast({
+            type: 'chat_msg',
+            senderId: clientId,
+            senderName: client.name,
+            text,
+            senderColor: simPlayer?.color || '#00f0ff'
+          });
+        }
+        break;
+      }
     }
   }
 
@@ -282,12 +299,12 @@ export class Room {
 
     this.simulation.update(dt);
 
-    const snapshotPacket: ServerPacket = {
-      type: 'snapshot',
-      state: this.simulation.getSnapshot()
-    };
-
-    this.broadcast(snapshotPacket);
+    const rawSnapshot = this.simulation.getSnapshot();
+    const compact = packSnapshot(rawSnapshot);
+    this.broadcast({
+      type: 'c_snap',
+      s: compact
+    });
   }
 
   public broadcast(packet: ServerPacket): void {

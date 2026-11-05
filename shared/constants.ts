@@ -1,8 +1,8 @@
-export const GAME_VERSION = '1.4.3';
+export const GAME_VERSION = '1.4.4';
 
 export const SERVER_CONFIG = {
-  TICK_RATE: 40, // 40 updates per second (25ms)
-  TICK_INTERVAL_MS: 1000 / 40,
+  TICK_RATE: 25, // 25 updates per second (40ms) - Ultra-optimized network tickrate
+  TICK_INTERVAL_MS: 1000 / 25,
   PORT: process.env.PORT ? parseInt(process.env.PORT, 10) : 8080,
   MAX_PLAYERS_PER_ROOM: 4,
   PLAYER_BASE_SPEED: 210,

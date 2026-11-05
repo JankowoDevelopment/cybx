@@ -1,4 +1,5 @@
 import { ClientPacket, ServerPacket, GameSnapshot, DoorState, WallBuyState, MysteryBoxState, LobbyPlayerInfo } from '@shared/types.js';
+import { unpackSnapshot } from '@shared/protocol.js';
 
 export class NetworkManager {
   private ws: WebSocket | null = null;
@@ -16,6 +17,7 @@ export class NetworkManager {
   public onExplosionEvent?: (x: number, y: number, radius: number) => void;
   public onGameEvent?: (event: string, text?: string, color?: string) => void;
   public onHitEvent?: (data: { x: number; y: number; damage: number; isKill: boolean; isWall: boolean; shooterId: string }) => void;
+  public onChatMessage?: (data: { senderId: string; senderName: string; text: string; senderColor?: string }) => void;
   public onError?: (msg: string) => void;
 
   public connect(url?: string): Promise<void> {
@@ -75,8 +77,19 @@ export class NetworkManager {
         this.onGameInit?.(packet);
         break;
 
+      case 'c_snap': {
+        const baseDoors = this.lastGameInitPacket?.doors || [];
+        const fullSnap = unpackSnapshot(packet.s, baseDoors);
+        this.onSnapshot?.(fullSnap);
+        break;
+      }
+
       case 'snapshot':
         this.onSnapshot?.(packet.state);
+        break;
+
+      case 'chat_msg':
+        this.onChatMessage?.(packet);
         break;
 
       case 'sound_event':

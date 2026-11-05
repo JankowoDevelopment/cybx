@@ -20,6 +20,7 @@ import { DoomHud } from './doomHud.js';
 import { ShopModal } from '../ui/shopModal.js';
 import { CardDraftModal } from '../ui/cardDraftModal.js';
 import { SettingsModal } from '../ui/settingsModal.js';
+import { InGameChat } from '../ui/inGameChat.js';
 import { soundSystem, SpatialSoundOptions } from '../audio/soundSystem.js';
 import { settingsManager } from '../settings/settingsManager.js';
 
@@ -53,6 +54,7 @@ export class Doom3DRenderer {
   private shopModal: ShopModal;
   private cardDraftModal: CardDraftModal;
   private settingsModal: SettingsModal;
+  private chat: InGameChat;
   private currentDraftPickerId: string | null = null;
   private unsubscribeSettings?: () => void;
 
@@ -199,6 +201,7 @@ export class Doom3DRenderer {
     this.shopModal = new ShopModal();
     this.cardDraftModal = new CardDraftModal();
     this.settingsModal = new SettingsModal();
+    this.chat = new InGameChat();
 
     this.hud.onOpenSettings = () => {
       this.settingsModal.open();
@@ -882,7 +885,8 @@ export class Doom3DRenderer {
         this.isPointerLocked &&
         !this.shopModal.isOpen &&
         !this.cardDraftModal.isOpen &&
-        !this.settingsModal.isOpen
+        !this.settingsModal.isOpen &&
+        !this.chat.isOpen
     });
     this.lastInputSendTime = performance.now();
   }
@@ -900,6 +904,7 @@ export class Doom3DRenderer {
         !this.shopModal.isOpen &&
         !this.cardDraftModal.isOpen &&
         !this.settingsModal.isOpen &&
+        !this.chat.isOpen &&
         !this.isPointerLocked
       ) {
         document.body.requestPointerLock();
@@ -934,6 +939,7 @@ export class Doom3DRenderer {
         !this.shopModal.isOpen &&
         !this.cardDraftModal.isOpen &&
         !this.settingsModal.isOpen &&
+        !this.chat.isOpen &&
         this.latestSnapshot?.roundState === 'active'
       ) {
         this.isMouseDown = true;
@@ -946,6 +952,26 @@ export class Doom3DRenderer {
     });
 
     window.addEventListener('keydown', (e) => {
+      if (this.chat.isOpen) {
+        if (e.code === 'Escape') {
+          this.chat.close();
+        }
+        return;
+      }
+
+      if (e.code === 'Enter' || e.code === 'KeyT') {
+        if (!this.shopModal.isOpen && !this.cardDraftModal.isOpen && !this.settingsModal.isOpen) {
+          e.preventDefault();
+          if (document.pointerLockElement) {
+            document.exitPointerLock();
+          }
+          this.pressedKeys.clear();
+          this.isMouseDown = false;
+          this.chat.open();
+          return;
+        }
+      }
+
       if (e.code === 'KeyM') {
         const s = settingsManager.get();
         settingsManager.update({ muted: !s.muted });
@@ -2125,6 +2151,7 @@ export class Doom3DRenderer {
     this.composer?.dispose();
 
     this.weaponRenderer.destroy();
+    this.chat.destroy();
     this.hud.destroy();
     this.shopModal.destroy();
     this.cardDraftModal.destroy();
