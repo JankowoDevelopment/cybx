@@ -76,7 +76,7 @@ Featuring instant client-side predicted movement, snappy strafe acceleration, pr
 
 ## 📜 License & Intellectual Property
 
-**All Rights Reserved &copy; 2026 Mariusz Gruszka**
+**All Rights Reserved &copy; 2026 Mikołaj Klecha**
 
 This repository is **Source-Available** strictly for personal inspection, educational study, and reference. 
 
